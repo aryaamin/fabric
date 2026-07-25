@@ -1,0 +1,18 @@
+{
+  "name": "@fabric/cli",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "fabric": "./src/cli.ts"
+  },
+  "dependencies": {
+    "@fabric/code-units": "0.1.0",
+    "@fabric/host": "0.1.0",
+    "@fabric/integrations": "0.1.0",
+    "@fabric/ir": "0.1.0",
+    "@fabric/mcp": "0.1.0",
+    "@fabric/runtime": "0.1.0",
+    "@fabric/storage": "0.1.0",
+    "@fabric/validator": "0.1.0"
+  }
+}

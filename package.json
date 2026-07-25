@@ -1,0 +1,25 @@
+{
+  "name": "fabric",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Fabric \u2014 the runtime for AI-generated software. Applications become first-class workspace objects.",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "link:local": "node scripts/link-workspaces.mjs",
+    "demo": "node --experimental-strip-types --no-warnings examples/demo.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "benchmark": "node --experimental-strip-types --no-warnings examples/benchmark.ts",
+    "demo:forms": "node --experimental-strip-types --no-warnings examples/forms-demo.ts",
+    "demo:ai": "node --experimental-strip-types --no-warnings examples/ai-edit-demo.ts",
+    "demo:extensions": "node --experimental-strip-types --no-warnings examples/extensions-demo.ts",
+    "fabric": "node --experimental-strip-types --no-warnings packages/cli/src/cli.ts",
+    "studio": "npm run dev --workspace @fabric/studio"
+  },
+  "engines": {
+    "node": ">=22.6.0"
+  }
+}

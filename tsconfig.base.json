@@ -1,0 +1,39 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2023", "DOM"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": false,
+    "declaration": true,
+    "sourceMap": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "resolveJsonModule": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "paths": {
+      "@fabric/ir": ["./packages/ir/src/index.ts"],
+      "@fabric/validator": ["./packages/validator/src/index.ts"],
+      "@fabric/capabilities": ["./packages/capabilities/src/index.ts"],
+      "@fabric/registry": ["./packages/registry/src/index.ts"],
+      "@fabric/runtime": ["./packages/runtime/src/index.ts"],
+      "@fabric/interpreter": ["./packages/interpreter/src/index.ts"],
+      "@fabric/versioning": ["./packages/versioning/src/index.ts"],
+      "@fabric/events": ["./packages/events/src/index.ts"],
+      "@fabric/permissions": ["./packages/permissions/src/index.ts"],
+      "@fabric/storage": ["./packages/storage/src/index.ts"],
+      "@fabric/connections": ["./packages/connections/src/index.ts"],
+      "@fabric/workspace": ["./packages/workspace/src/index.ts"]
+      ,"@fabric/code-units": ["./packages/code-units/src/index.ts"]
+      ,"@fabric/host": ["./packages/host/src/index.ts"]
+      ,"@fabric/host/node": ["./packages/host/src/node.ts"]
+      ,"@fabric/mcp": ["./packages/mcp/src/index.ts"]
+      ,"@fabric/integrations": ["./packages/integrations/src/index.ts"]
+    }
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "name": "@fabric/code-units",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@fabric/ir": "0.1.0"
+  }
+}

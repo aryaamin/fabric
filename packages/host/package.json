@@ -1,0 +1,14 @@
+{
+  "name": "@fabric/host",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./node": "./src/node.ts"
+  },
+  "dependencies": {
+    "@fabric/ir": "0.1.0",
+    "@fabric/permissions": "0.1.0",
+    "@fabric/runtime": "0.1.0"
+  }
+}

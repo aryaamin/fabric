@@ -1,0 +1,13 @@
+{
+  "name": "@fabric/connections",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@fabric/ir": "0.1.0",
+    "@fabric/events": "0.1.0",
+    "@fabric/interpreter": "0.1.0"
+  }
+}

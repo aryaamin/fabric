@@ -1,0 +1,13 @@
+{
+  "name": "@fabric/orchestrator",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@fabric/ir": "0.1.0",
+    "@fabric/validator": "0.1.0",
+    "@fabric/capabilities": "0.1.0"
+  }
+}

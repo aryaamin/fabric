@@ -1,0 +1,67 @@
+{
+  "spec": "0.1",
+  "id": "risk-scoring",
+  "name": "Risk Scoring",
+  "description": "Portable Fabric app that calls a content-pinned Python code unit.",
+  "capabilities": [],
+  "models": [],
+  "codeUnits": [
+    {
+      "name": "scoreRisk",
+      "runtime": "python",
+      "entry": "risk_score.py",
+      "digest": "sha256:62d14a0b8e7d593c3949e7c72ea207aee57c53edb210c5b99f63f424a5e578e2",
+      "input": [
+        { "name": "amount", "type": "number", "required": true },
+        { "name": "country", "type": "string", "required": true }
+      ],
+      "output": "json"
+    }
+  ],
+  "actions": [
+    {
+      "name": "score",
+      "params": [
+        { "name": "amount", "type": "number", "required": true },
+        { "name": "country", "type": "string", "required": true }
+      ],
+      "steps": [
+        {
+          "kind": "code",
+          "id": "risk",
+          "unit": "scoreRisk",
+          "input": {
+            "amount": { "$": "input.amount" },
+            "country": { "$": "input.country" }
+          }
+        }
+      ],
+      "returns": { "$": "steps.risk" }
+    }
+  ],
+  "events": [],
+  "subscriptions": [],
+  "views": [
+    {
+      "name": "main",
+      "title": "Risk Scoring",
+      "root": {
+        "type": "Page",
+        "children": [
+          { "type": "Heading", "props": { "text": "Risk Scoring" } },
+          {
+            "type": "Text",
+            "props": {
+              "text": "This app is JSON orchestration plus a pinned Python implementation."
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "permissions": {
+    "roles": ["owner"],
+    "actions": { "score": ["owner"] },
+    "default": "deny"
+  }
+}

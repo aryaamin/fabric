@@ -1,0 +1,236 @@
+@import "tailwindcss";
+
+/*
+ * Fabric Studio design system.
+ *
+ * Dark by default (this is a maker's surface), neutral zinc/graphite surfaces,
+ * crisp 1px lines, exactly ONE accent (violet). Hierarchy comes from the type
+ * scale, spacing and composition — not from color. Numbers, ids, timestamps,
+ * hashes and metrics are always mono, because they are data, not prose.
+ */
+@theme {
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", monospace;
+
+  /* Surfaces, darkest → lightest. */
+  --color-base: #08080a;
+  --color-panel: #0c0c0f;
+  --color-raised: #121216;
+  --color-hover: #18181d;
+
+  /* Lines. */
+  --color-line: #23232b;
+  --color-line-soft: #17171c;
+
+  /* Ink. */
+  --color-ink: #f2f2f5;
+  --color-ink-2: #a3a3ae;
+  --color-ink-3: #6c6c78;
+
+  /* The one accent. */
+  --color-accent: #7c5cff;
+  --color-accent-hi: #9c85ff;
+  --color-accent-dim: #191333;
+
+  /* Semantic tones (badges, diffs, statuses) — used sparingly. */
+  --color-ok: #3ddc97;
+  --color-ok-dim: #0d2620;
+  --color-warn: #f5c451;
+  --color-warn-dim: #2a2110;
+  --color-bad: #ff6b6b;
+  --color-bad-dim: #2b1417;
+
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 9px;
+  --radius-lg: 13px;
+  --radius-xl: 18px;
+
+  --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@layer base {
+  * {
+    border-color: var(--color-line);
+  }
+
+  html {
+    color-scheme: dark;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    background: var(--color-base);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.5;
+    letter-spacing: -0.006em;
+  }
+
+  /* Tabular figures everywhere numbers appear in mono. */
+  .font-mono,
+  code,
+  kbd {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "ss01";
+  }
+
+  ::selection {
+    background: color-mix(in oklab, var(--color-accent) 40%, transparent);
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #26262e;
+    border: 3px solid transparent;
+    background-clip: content-box;
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #34343e;
+    background-clip: content-box;
+  }
+
+  :focus-visible {
+    outline: 2px solid color-mix(in oklab, var(--color-accent) 70%, transparent);
+    outline-offset: 2px;
+  }
+
+  input,
+  textarea,
+  select,
+  button {
+    font: inherit;
+    letter-spacing: inherit;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Motion. Small, fast, purposeful: enter animations for content that  */
+/* arrives (rows, messages, cards) and growth for chart bars. Nothing  */
+/* animates layout, so there is never a shift.                         */
+/* ------------------------------------------------------------------ */
+
+@keyframes fb-rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes fb-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fb-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.97) translateY(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes fb-grow-x {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@keyframes fb-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes fb-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes fb-dash {
+  to {
+    stroke-dashoffset: -1000;
+  }
+}
+
+@utility animate-rise {
+  animation: fb-rise 0.28s var(--ease-out-quint) both;
+}
+
+@utility animate-fade {
+  animation: fb-fade 0.3s ease both;
+}
+
+@utility animate-pop {
+  animation: fb-pop 0.22s var(--ease-out-quint) both;
+}
+
+@utility animate-grow-x {
+  transform-origin: left center;
+  animation: fb-grow-x 0.65s var(--ease-out-quint) both;
+}
+
+@utility animate-spin-slow {
+  animation: fb-spin 0.8s linear infinite;
+}
+
+/* Staggered enter for lists: set style={{ animationDelay }} on the child. */
+@utility skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--color-raised);
+}
+
+@layer utilities {
+  .skeleton::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, #1e1e25, transparent);
+    animation: fb-shimmer 1.4s infinite;
+  }
+
+  /* A hairline grid used behind hero surfaces. Extremely subtle. */
+  .grid-bg {
+    background-image:
+      linear-gradient(to right, #ffffff06 1px, transparent 1px),
+      linear-gradient(to bottom, #ffffff06 1px, transparent 1px);
+    background-size: 44px 44px;
+  }
+
+  .accent-glow {
+    box-shadow: 0 0 0 1px color-mix(in oklab, var(--color-accent) 35%, transparent),
+      0 12px 40px -12px color-mix(in oklab, var(--color-accent) 45%, transparent);
+  }
+
+  /* The animated pulse that travels a connection wire. */
+  .wire-flow {
+    stroke-dasharray: 6 10;
+    animation: fb-dash 6s linear infinite;
+  }
+}

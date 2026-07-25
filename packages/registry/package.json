@@ -1,0 +1,11 @@
+{
+  "name": "@fabric/registry",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@fabric/capabilities": "0.1.0"
+  }
+}
