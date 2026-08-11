@@ -6,6 +6,23 @@ import type {
 } from "@fabric/capabilities";
 import { BaseCapability } from "@fabric/capabilities";
 
+export interface NotificationMessage {
+  to: string;
+  title: string;
+  body?: string;
+}
+
+export interface NotificationDelivery {
+  delivered: boolean;
+  to: string;
+  provider?: string;
+  id?: string;
+}
+
+export interface NotificationTransport {
+  send(message: NotificationMessage, signal?: AbortSignal): Promise<NotificationDelivery>;
+}
+
 const manifest: CapabilityManifest = {
   name: "notifications",
   version: "0.1.0",
@@ -29,16 +46,25 @@ const manifest: CapabilityManifest = {
 
 class NotificationsCapability extends BaseCapability {
   readonly manifest = manifest;
+  private readonly transport?: NotificationTransport;
+
+  constructor(transport?: NotificationTransport) {
+    super();
+    this.transport = transport;
+  }
+
   protected handlers = {
-    send: async (a: { to: string; title: string; body?: string }, ctx: CapabilityContext) => {
-      // Reference impl logs; a real adapter routes to Slack/email/push.
+    send: async (a: NotificationMessage, ctx: CapabilityContext) => {
+      const delivery = this.transport
+        ? await this.transport.send(a, ctx.signal)
+        : { delivered: true, to: a.to, provider: "log" };
       ctx.logger.info(`notify ${a.to}: ${a.title}`, a.body);
-      await ctx.emit("sent", { to: a.to, title: a.title });
-      return { delivered: true, to: a.to };
+      await ctx.emit("sent", { to: a.to, title: a.title, provider: delivery.provider });
+      return delivery;
     },
   };
 }
 
-export function notificationsCapabilityFactory(): CapabilityFactory {
-  return { manifest, create: () => new NotificationsCapability() as Capability };
+export function notificationsCapabilityFactory(transport?: NotificationTransport): CapabilityFactory {
+  return { manifest, create: () => new NotificationsCapability(transport) as Capability };
 }

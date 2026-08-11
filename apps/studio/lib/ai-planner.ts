@@ -20,7 +20,7 @@ import type { Patch } from "@fabric/ir";
  * where those deps are installed (see apps/studio/package.json). The core
  * packages remain dependency-free.
  */
-export function createAiPlanner(model = "anthropic/claude-sonnet-4.6"): Planner {
+export function createAiPlanner(model = "anthropic/claude-sonnet-5"): Planner {
   return {
     async plan(input: PlanInput): Promise<Patch[]> {
       // Lazy import keeps the AI SDK out of any non-studio consumer.
@@ -40,9 +40,10 @@ export function createAiPlanner(model = "anthropic/claude-sonnet-4.6"): Planner 
           .describe("Minimal set of IR edits that satisfy the user's request."),
       });
 
-      const { experimental_output } = await generateText({
+      const started = performance.now();
+      const result = await generateText({
         model,
-        experimental_output: Output.object({ schema: patchSchema }),
+        output: Output.object({ schema: patchSchema }),
         system: SYSTEM_PROMPT,
         prompt: [
           `# Capabilities available (the ONLY powers apps may use)`,
@@ -53,8 +54,13 @@ export function createAiPlanner(model = "anthropic/claude-sonnet-4.6"): Planner 
           input.prompt,
         ].join("\n\n"),
       });
+      console.info("[fabric-ai] planned IR edit", {
+        model,
+        patches: result.output.patches.length,
+        durationMs: Math.round(performance.now() - started),
+      });
 
-      return (experimental_output?.patches ?? []) as Patch[];
+      return result.output.patches as Patch[];
     },
   };
 }

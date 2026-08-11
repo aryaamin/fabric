@@ -44,6 +44,8 @@ import { LogSink } from "./logger.ts";
 
 export interface InstallOptions {
   workspaceId: string;
+  /** Stable host-provided installation identity for durable storage namespaces. */
+  instanceId?: string;
   secrets?: Record<string, string>;
   author?: string;
   message?: string;
@@ -61,6 +63,7 @@ interface Installed {
 
 export interface RuntimeOptions {
   echoLogs?: boolean;
+  connectEvents?: boolean;
   codeUnitRunner?: CodeUnitRunner;
   codeRoot?: string;
 }
@@ -77,9 +80,11 @@ export class Runtime {
   private connections: ConnectionManager;
   private codeUnitRunner?: CodeUnitRunner;
   private codeRoot: string;
+  private connectEvents: boolean;
 
   constructor(opts: RuntimeOptions = {}) {
     this.logs = new LogSink(opts.echoLogs ?? false);
+    this.connectEvents = opts.connectEvents ?? true;
     this.connections = new ConnectionManager(this.bus, (appId, action, params) =>
       // Connections run as the app's system principal (owner authority).
       this.invokeAction(appId, action, params, { id: "system", roles: ["owner"] }),
@@ -101,7 +106,7 @@ export class Runtime {
     }
 
     const prev = this.apps.get(doc.id);
-    const instanceId = prev?.instanceId ?? `inst_${++instanceSeq}`;
+    const instanceId = prev?.instanceId ?? opts.instanceId ?? `inst_${++instanceSeq}`;
     for (const [name, value] of Object.entries(opts.secrets ?? {})) this.secrets.set(instanceId, name, value);
 
     const version = this.versions.commit({
@@ -140,8 +145,10 @@ export class Runtime {
     this.apps.set(doc.id, installed);
 
     // Rewire connections for the whole workspace (idempotent for the demo).
-    this.connections.disconnectAll();
-    for (const a of this.apps.values()) this.connections.connect(a.workspaceId, a.doc);
+    if (this.connectEvents) {
+      this.connections.disconnectAll();
+      for (const a of this.apps.values()) this.connections.connect(a.workspaceId, a.doc);
+    }
 
     this.logs.scoped(doc.id).info(`installed ${doc.name} @ ${version.id}`);
 

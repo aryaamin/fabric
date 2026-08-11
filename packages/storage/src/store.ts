@@ -48,10 +48,8 @@ export interface DataStore {
   count(collection: string, where?: Filter): Promise<number>;
 }
 
-let counter = 0;
 function newId(): string {
-  counter += 1;
-  return `${Date.now().toString(36)}${counter.toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  return crypto.randomUUID();
 }
 
 /** Namespaced in-memory store. Each app installation gets its own instance. */
@@ -69,7 +67,7 @@ export class InMemoryDataStore implements DataStore {
 
   async create(collection: string, data: Record<string, unknown>): Promise<Record_> {
     const now = new Date().toISOString();
-    const rec: Record_ = { id: newId(), createdAt: now, updatedAt: now, ...data };
+    const rec: Record_ = { ...data, id: newId(), createdAt: now, updatedAt: now };
     this.col(collection).set(rec.id, rec);
     return structuredClone(rec);
   }
@@ -93,21 +91,26 @@ export class InMemoryDataStore implements DataStore {
   }
 
   async list(collection: string, params: ListParams = {}): Promise<Record_[]> {
-    let rows = [...this.col(collection).values()].filter((r) => match(r, params.where));
-    for (const s of [...(params.sort ?? [])].reverse()) {
-      rows.sort((a, b) => cmp(a[s.field], b[s.field]) * (s.dir === "desc" ? -1 : 1));
-    }
-    const start = params.offset ?? 0;
-    const end = params.limit != null ? start + params.limit : undefined;
-    return rows.slice(start, end).map((r) => structuredClone(r));
+    return applyListParams([...this.col(collection).values()], params).map((r) => structuredClone(r));
   }
 
   async count(collection: string, where?: Filter): Promise<number> {
-    return [...this.col(collection).values()].filter((r) => match(r, where)).length;
+    return [...this.col(collection).values()].filter((r) => matchesFilter(r, where)).length;
   }
 }
 
-function match(row: Record_, where?: Filter): boolean {
+/** Shared query semantics used by every adapter, including Neon. */
+export function applyListParams(rows: Record_[], params: ListParams = {}): Record_[] {
+  const filtered = rows.filter((r) => matchesFilter(r, params.where));
+  for (const s of [...(params.sort ?? [])].reverse()) {
+    filtered.sort((a, b) => compareValues(a[s.field], b[s.field]) * (s.dir === "desc" ? -1 : 1));
+  }
+  const start = params.offset ?? 0;
+  const end = params.limit != null ? start + params.limit : undefined;
+  return filtered.slice(start, end);
+}
+
+export function matchesFilter(row: Record_, where?: Filter): boolean {
   if (!where) return true;
   return Object.entries(where).every(([field, cond]) => matchField(row[field], cond));
 }
@@ -119,14 +122,14 @@ function matchField(value: unknown, cond: unknown): boolean {
   if ("$ne" in c) return value !== c.$ne;
   if ("$in" in c) return Array.isArray(c.$in) && c.$in.includes(value);
   if ("$contains" in c) return typeof value === "string" && value.includes(String(c.$contains));
-  if ("$gt" in c) return cmp(value, c.$gt) > 0;
-  if ("$gte" in c) return cmp(value, c.$gte) >= 0;
-  if ("$lt" in c) return cmp(value, c.$lt) < 0;
-  if ("$lte" in c) return cmp(value, c.$lte) <= 0;
+  if ("$gt" in c) return compareValues(value, c.$gt) > 0;
+  if ("$gte" in c) return compareValues(value, c.$gte) >= 0;
+  if ("$lt" in c) return compareValues(value, c.$lt) < 0;
+  if ("$lte" in c) return compareValues(value, c.$lte) <= 0;
   return true;
 }
 
-function cmp(a: unknown, b: unknown): number {
+export function compareValues(a: unknown, b: unknown): number {
   if (a === b) return 0;
   if (a == null) return -1;
   if (b == null) return 1;

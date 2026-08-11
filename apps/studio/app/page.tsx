@@ -1,6 +1,8 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import { currentIdentity } from "../lib/auth";
 import { ensureRuntime, getRuntime, irBytes } from "../lib/runtime";
-import { allObjects, personFor } from "../lib/workspace";
+import { listWorkspaceObjects, personFor } from "../lib/workspace";
 import { ConnectionGraph, type GraphApp } from "../components/ConnectionGraph";
 import { NewAppButton } from "../components/NewAppButton";
 import { Badge } from "../components/ui/Badge";
@@ -20,9 +22,11 @@ export const dynamic = "force-dynamic";
  * only client islands are the "New app" composer and the connection graph.
  */
 export default async function WorkspacePage() {
-  await ensureRuntime();
-  const rt = getRuntime();
-  const objects = allObjects();
+  const identity = await currentIdentity();
+  if (!identity) redirect("/sign-in");
+  await ensureRuntime(identity.workspaceId, identity.id);
+  const rt = getRuntime(identity.workspaceId);
+  const objects = await listWorkspaceObjects(identity.workspaceId, identity.id);
 
   const rows = objects.map((obj) => {
     const doc = rt.installed(obj.appId ?? obj.slug);

@@ -35,10 +35,9 @@ interface Sub {
   handler: EventHandler;
 }
 
-let seq = 0;
-
 export class EventBus {
   private subs: Sub[] = [];
+  private sinks: EventHandler[] = [];
   private log: FabricEvent[] = [];
   private maxLog = 1000;
 
@@ -50,10 +49,23 @@ export class EventBus {
     };
   }
 
+  /** Observe every event for persistence/queue delivery without changing apps. */
+  addSink(handler: EventHandler): Unsubscribe {
+    this.sinks.push(handler);
+    return () => {
+      this.sinks = this.sinks.filter((sink) => sink !== handler);
+    };
+  }
+
   async publish(evt: Omit<FabricEvent, "id" | "at">): Promise<FabricEvent> {
-    seq += 1;
-    const full: FabricEvent = { ...evt, id: `evt_${seq}`, at: new Date().toISOString() };
+    const full: FabricEvent = {
+      ...evt,
+      id: `evt_${crypto.randomUUID()}`,
+      at: new Date().toISOString(),
+    };
     this.log.push(full);
+    for (const sink of this.sinks) await sink(full);
+
     if (this.log.length > this.maxLog) this.log.shift();
 
     const key = `${full.source}.${full.name}`;

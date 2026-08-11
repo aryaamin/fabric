@@ -34,16 +34,24 @@ export interface VersionEntry {
   isHead: boolean;
 }
 
+interface VersionChange {
+  kind: "added" | "removed" | "changed";
+  path: string;
+  detail?: string;
+}
+
 export function VersionTimeline({
   open,
   onClose,
   slug,
+  apiQuery,
   onPreview,
   onCommitted,
 }: {
   open: boolean;
   onClose: () => void;
   slug: string;
+  apiQuery: string;
   /** show a previewed tree on the canvas; null returns the canvas to head. */
   onPreview: (view: RenderNode | null, label: string | null) => void;
   /** a restore or fork changed the app; the parent should refresh. */
@@ -54,10 +62,11 @@ export function VersionTimeline({
   const [busy, setBusy] = useState(false);
   const [previewMs, setPreviewMs] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [comparison, setComparison] = useState<VersionChange[] | null>(null);
   const inflight = useRef(0);
 
   const load = useCallback(async () => {
-    const res = await fetch(`/api/version?slug=${encodeURIComponent(slug)}`);
+    const res = await fetch(`/api/version${apiQuery}&slug=${encodeURIComponent(slug)}`);
     const data = await res.json();
     if (data.ok) {
       setVersions(data.versions as VersionEntry[]);
@@ -65,7 +74,7 @@ export function VersionTimeline({
     } else {
       setError(data.error ?? "Could not load history.");
     }
-  }, [slug]);
+  }, [apiQuery, slug]);
 
   useEffect(() => {
     if (open) void load();
@@ -81,10 +90,11 @@ export function VersionTimeline({
       if (v.isHead) {
         onPreview(null, null);
         setPreviewMs(null);
+        setComparison(null);
         return;
       }
       const seq = ++inflight.current;
-      const res = await fetch("/api/version", {
+      const res = await fetch(`/api/version${apiQuery}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ slug, op: "preview", versionId: v.id }),
@@ -96,9 +106,10 @@ export function VersionTimeline({
       if (data.ok) {
         onPreview(data.view as RenderNode, `${short(v.id)} · ${relative(v.createdAt)}`);
         setPreviewMs(data.ms as number);
+        setComparison(null);
       }
     },
-    [versions, slug, onPreview],
+    [versions, slug, onPreview, apiQuery],
   );
 
   async function restore() {
@@ -106,7 +117,7 @@ export function VersionTimeline({
     if (!v || busy) return;
     setBusy(true);
     try {
-      const res = await fetch("/api/version", {
+      const res = await fetch(`/api/version${apiQuery}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ slug, op: "restore", versionId: v.id }),
@@ -124,12 +135,33 @@ export function VersionTimeline({
     }
   }
 
+  async function compare() {
+    const v = versions?.[index];
+    if (!v || v.isHead || busy) return;
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/version${apiQuery}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ slug, op: "compare", versionId: v.id }),
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        setError(data.error ?? "Could not compare versions.");
+        return;
+      }
+      setComparison(data.changes as VersionChange[]);
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function fork() {
     const v = versions?.[index];
     if (!v || busy) return;
     setBusy(true);
     try {
-      const res = await fetch("/api/version", {
+      const res = await fetch(`/api/version${apiQuery}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ slug, op: "fork", versionId: v.id }),
@@ -198,16 +230,40 @@ export function VersionTimeline({
                 <span className="font-mono text-[11.5px] text-accent-hi">rendered in {previewMs.toFixed(2)} ms</span>
               )}
             </div>
-            {!atHead && (
-              <div className="mt-3 flex gap-2">
+            <div className="mt-3 flex flex-wrap gap-2">
+              {!atHead ? (
+                <>
                 <Button size="sm" variant="primary" loading={busy} onClick={restore}>
                   Restore this version
                 </Button>
+                  <Button size="sm" variant="secondary" loading={busy} onClick={compare}>
+                    Compare to live
+                  </Button>
+                </>
+              ) : null}
                 <Button size="sm" variant="secondary" loading={busy} onClick={fork}>
-                  Fork from here
+                  {atHead ? "Duplicate app" : "Fork from here"}
                 </Button>
+            </div>
+            {comparison ? (
+              <div className="mt-3 rounded-md border border-line bg-raised p-2.5">
+                <div className="mb-1.5 text-[11.5px] font-medium uppercase tracking-[0.05em] text-ink-3">
+                  Changes to reach live
+                </div>
+                {comparison.length === 0 ? (
+                  <p className="text-[12px] text-ink-3">No semantic differences.</p>
+                ) : (
+                  <ul className="max-h-36 space-y-1 overflow-auto font-mono text-[11px] text-ink-2">
+                    {comparison.map((change, i) => (
+                      <li key={`${change.path}-${i}`}>
+                        <span className="text-accent-hi">{change.kind}</span> {change.path}
+                        {change.detail ? ` · ${change.detail}` : ""}
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
-            )}
+            ) : null}
           </div>
 
           {/* The list, newest first */}

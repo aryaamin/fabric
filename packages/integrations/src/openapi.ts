@@ -51,6 +51,8 @@ export interface OpenApiCapabilityOptions {
   baseUrl?: string;
   /** Secret name containing a bearer token. */
   bearerTokenSecret?: string;
+  /** Injectable request implementation for tests and custom hosts. */
+  fetch?: typeof globalThis.fetch;
 }
 
 export function openApiCapabilityFactory(
@@ -125,7 +127,7 @@ class OpenApiCapability extends BaseCapability {
             headers.set("content-type", "application/json");
             init.body = JSON.stringify(args.body);
           }
-          const response = await fetch(url, init);
+          const response = await (options.fetch ?? globalThis.fetch)(url, init);
           const responseType = response.headers.get("content-type") ?? "";
           const output = responseType.includes("json") ? await response.json() : await response.text();
           if (!response.ok) {

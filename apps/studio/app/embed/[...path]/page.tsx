@@ -1,6 +1,7 @@
-import { ensureRuntime, getRuntime, primaryView } from "../../../lib/runtime";
-import { resolveVisit, visitorQuery } from "../../../lib/workspace";
+import { ensureRuntime, getRuntime, primaryView, WORKSPACE_ID } from "../../../lib/runtime";
+import { resolveWorkspaceVisit, visitorQuery } from "../../../lib/workspace";
 import { EmbedApp } from "../../../components/EmbedApp";
+import { currentIdentity } from "../../../lib/auth";
 
 /**
  * The embed surface — `/embed/<workspace>/<app>?k=<token>`, the URL that
@@ -21,10 +22,18 @@ export default async function EmbedPage({
   const { path } = await params;
   const slug = path[path.length - 1] ?? "";
   const sp = await searchParams;
-  await ensureRuntime();
+  const identity = await currentIdentity();
+  const workspaceId = path.length > 1 ? path[path.length - 2]! : identity?.workspaceId ?? WORKSPACE_ID;
+  await ensureRuntime(workspaceId, identity?.id);
 
-  const q = visitorQuery(sp);
-  const visit = resolveVisit(slug, q, { embed: true });
+  const q = visitorQuery(sp, identity?.id, workspaceId);
+  const visit = await resolveWorkspaceVisit(
+    workspaceId,
+    identity?.id ?? "u_owner",
+    slug,
+    q,
+    { embed: true },
+  );
 
   if (!visit.object || visit.surface === "denied") {
     return (
@@ -36,7 +45,7 @@ export default async function EmbedPage({
     );
   }
 
-  const rt = getRuntime();
+  const rt = getRuntime(workspaceId);
   const doc = rt.installed(visit.object.appId ?? slug);
   const viewName = doc ? primaryView(doc) : undefined;
   if (!doc || !viewName) {
@@ -52,6 +61,7 @@ export default async function EmbedPage({
   return (
     <EmbedApp
       slug={slug}
+      workspaceId={workspaceId}
       viewName={viewName}
       initialView={initialView}
       {...(q.k ? { token: q.k } : {})}

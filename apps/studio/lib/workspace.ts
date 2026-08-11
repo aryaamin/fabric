@@ -10,9 +10,12 @@ import {
   type Surface,
   type Workspace,
   type WorkspaceObject,
+  PostgresWorkspaceRepository,
 } from "@fabric/workspace";
 import type { Principal } from "@fabric/permissions";
 import { GUEST_PRINCIPAL, OWNER_PRINCIPAL, WORKSPACE_ID } from "./runtime";
+import { getDatabaseExecutor, hasDurableDatabase } from "./database";
+import { claimWorkspaceInvitations } from "./invitations";
 
 /**
  * Server-side Workspace singleton for the studio.
@@ -28,7 +31,7 @@ import { GUEST_PRINCIPAL, OWNER_PRINCIPAL, WORKSPACE_ID } from "./runtime";
 
 declare global {
   // eslint-disable-next-line no-var
-  var __fabricWorkspace: Workspace | undefined;
+  var __fabricWorkspaces: Map<string, Workspace> | undefined;
 }
 
 /** The single signed-in user for the demo. */
@@ -112,14 +115,16 @@ const SEED: SeedObject[] = [
   },
 ];
 
-export function getWorkspace(): Workspace {
-  if (!globalThis.__fabricWorkspace) {
-    const ws = createWorkspace(WORKSPACE_ID, "Acme Inc");
+export function getWorkspace(workspaceId = WORKSPACE_ID, ownerId = CURRENT_USER): Workspace {
+  globalThis.__fabricWorkspaces ??= new Map();
+  let workspace = globalThis.__fabricWorkspaces.get(workspaceId);
+  if (!workspace) {
+    const ws = createWorkspace(workspaceId, workspaceId === WORKSPACE_ID ? "Acme Inc" : "My Workspace");
     for (const s of SEED) {
       const obj = createObject(ws, {
         kind: "app",
         name: s.name,
-        ownerId: CURRENT_USER,
+        ownerId,
         appId: s.appId,
         icon: s.icon,
       });
@@ -132,28 +137,203 @@ export function getWorkspace(): Workspace {
       // "last edited" reflects the app, not the seeding order.
       obj.updatedAt = new Date(Date.now() - s.editedMinutesAgo * 60_000).toISOString();
     }
-    globalThis.__fabricWorkspace = ws;
+    globalThis.__fabricWorkspaces.set(workspaceId, ws);
+    workspace = ws;
   }
-  return globalThis.__fabricWorkspace;
+  return workspace;
 }
 
 /** Find an object by its slug (which, in the studio, equals the app id). */
-export function objectBySlug(slug: string): WorkspaceObject | undefined {
-  for (const obj of getWorkspace().objects.values()) {
+export function objectBySlug(
+  slug: string,
+  workspaceId = WORKSPACE_ID,
+  ownerId = CURRENT_USER,
+): WorkspaceObject | undefined {
+  for (const obj of getWorkspace(workspaceId, ownerId).objects.values()) {
     if (obj.slug === slug) return obj;
   }
   return undefined;
 }
 
-export function allObjects(): WorkspaceObject[] {
-  return [...getWorkspace().objects.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+export function allObjects(workspaceId = WORKSPACE_ID, ownerId = CURRENT_USER): WorkspaceObject[] {
+  return [...getWorkspace(workspaceId, ownerId).objects.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
 /** Create a workspace object for a newly installed app. */
-export function registerObject(appId: string, name: string, icon: string): WorkspaceObject {
-  const obj = createObject(getWorkspace(), { kind: "app", name, ownerId: CURRENT_USER, appId, icon });
+export function registerObject(
+  appId: string,
+  name: string,
+  icon: string,
+  workspaceId = WORKSPACE_ID,
+  ownerId = CURRENT_USER,
+): WorkspaceObject {
+  const obj = createObject(getWorkspace(workspaceId, ownerId), { kind: "app", name, ownerId, appId, icon });
   obj.slug = appId;
   return obj;
+}
+
+export async function loadWorkspace(
+  workspaceId: string,
+  ownerId: string,
+): Promise<Workspace> {
+  if (!hasDurableDatabase()) return getWorkspace(workspaceId, ownerId);
+  const repository = new PostgresWorkspaceRepository(getDatabaseExecutor());
+  const existing = await repository.get(workspaceId);
+  if (existing) {
+    await ensureOwnerAppRoles(workspaceId, existing);
+    return existing;
+  }
+
+  const workspace = await repository.create(
+    workspaceId,
+    workspaceId.startsWith("org_") ? "Team Workspace" : "My Workspace",
+  );
+  for (const seed of SEED) {
+    const object = await repository.createObject(workspaceId, {
+      kind: "app",
+      name: seed.name,
+      ownerId,
+      appId: seed.appId,
+      icon: seed.icon,
+    });
+    object.slug = seed.appId;
+    for (const grant of seed.grants ?? []) share(object, grant.principalId, grant.role);
+    if (seed.linkRole) createShareLink("", workspace, object, seed.linkRole);
+    if (seed.isPublic) setPublic(object, true);
+    await repository.saveObject(workspaceId, object);
+    await grantAppRole(workspaceId, seed.appId, ownerId, "owner");
+  }
+  return (await repository.get(workspaceId)) ?? workspace;
+}
+
+export async function listWorkspaceObjects(
+  workspaceId: string,
+  ownerId: string,
+): Promise<WorkspaceObject[]> {
+  const workspace = await loadWorkspace(workspaceId, ownerId);
+  return [...workspace.objects.values()].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+export async function findWorkspaceObject(
+  workspaceId: string,
+  slug: string,
+  ownerId: string,
+): Promise<WorkspaceObject | undefined> {
+  if (hasDurableDatabase()) {
+    return (
+      (await new PostgresWorkspaceRepository(getDatabaseExecutor()).findBySlug(workspaceId, slug)) ??
+      undefined
+    );
+  }
+  const workspace = getWorkspace(workspaceId, ownerId);
+  for (const object of workspace.objects.values()) if (object.slug === slug) return object;
+  return undefined;
+}
+
+export async function createWorkspaceObject(
+  workspaceId: string,
+  ownerId: string,
+  appId: string,
+  name: string,
+  icon: string,
+): Promise<WorkspaceObject> {
+  if (!hasDurableDatabase()) return registerObject(appId, name, icon, workspaceId, ownerId);
+  await loadWorkspace(workspaceId, ownerId);
+  const repository = new PostgresWorkspaceRepository(getDatabaseExecutor());
+  const object = await repository.createObject(workspaceId, {
+    kind: "app",
+    name,
+    ownerId,
+    appId,
+    icon,
+  });
+  object.slug = appId;
+  await repository.saveObject(workspaceId, object);
+  await grantAppRole(workspaceId, appId, ownerId, "owner");
+  return object;
+}
+
+export async function saveWorkspaceObject(
+  workspaceId: string,
+  object: WorkspaceObject,
+): Promise<void> {
+  if (!hasDurableDatabase()) return;
+  await new PostgresWorkspaceRepository(getDatabaseExecutor()).saveObject(workspaceId, object);
+}
+
+export async function resolveWorkspaceVisit(
+  workspaceId: string,
+  ownerId: string,
+  slug: string,
+  query: VisitorQuery,
+  opts: { embed?: boolean } = {},
+): Promise<Visit> {
+  if (query.principalId) {
+    await claimWorkspaceInvitations(workspaceId, query.principalId);
+  }
+  const object = await findWorkspaceObject(workspaceId, slug, ownerId);
+  if (!object) return { surface: "denied", principal: GUEST_PRINCIPAL };
+  const visit = visitForObject(object, query, opts);
+  if (!query.principalId || visit.surface === "denied") return visit;
+  const roles = await appRoles(
+    workspaceId,
+    object.appId ?? slug,
+    query.principalId,
+    visit.role,
+  );
+  return {
+    ...visit,
+    principal: {
+      id: query.principalId,
+      roles: roles.length > 0 ? roles : ["guest"],
+    },
+  };
+}
+
+export async function grantAppRole(
+  workspaceId: string,
+  appId: string,
+  principalId: string,
+  role: string,
+): Promise<void> {
+  if (!hasDurableDatabase()) return;
+  await getDatabaseExecutor()(
+    `INSERT INTO app_role_grants (workspace_id, app_id, principal_id, role)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (workspace_id, app_id, principal_id, role) DO NOTHING`,
+    [workspaceId, appId, principalId, role],
+  );
+}
+
+async function appRoles(
+  workspaceId: string,
+  appId: string,
+  principalId: string,
+  documentRole?: ShareRole,
+): Promise<string[]> {
+  if (!hasDurableDatabase()) {
+    return documentRole === "owner" || documentRole === "editor" ? ["owner"] : ["guest"];
+  }
+  const rows = await getDatabaseExecutor()<{ role: string }>(
+    `SELECT role FROM app_role_grants
+     WHERE workspace_id = $1 AND app_id = $2 AND principal_id = $3`,
+    [workspaceId, appId, principalId],
+  );
+  return rows.map((row) => row.role);
+}
+
+async function ensureOwnerAppRoles(
+  workspaceId: string,
+  workspace: Workspace,
+): Promise<void> {
+  for (const object of workspace.objects.values()) {
+    if (!object.appId) continue;
+    for (const grant of object.grants) {
+      if (grant.role === "owner") {
+        await grantAppRole(workspaceId, object.appId, grant.principalId, "owner");
+      }
+    }
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -161,8 +341,9 @@ export function registerObject(appId: string, name: string, icon: string): Works
 /* ------------------------------------------------------------------ */
 
 export interface VisitorQuery {
-  /** ?u=<id> — simulate a signed-in visitor (real auth is out of scope). */
-  u?: string;
+  workspaceId?: string;
+  /** Authenticated identity supplied by Clerk, never by a query parameter. */
+  principalId?: string;
   /** ?k=<token> — the share-link capability token. */
   k?: string;
 }
@@ -181,10 +362,13 @@ export interface Visit {
  * the in-app principal chooses what you may do inside. Two planes, one place.
  */
 export function resolveVisit(slug: string, q: VisitorQuery, opts: { embed?: boolean } = {}): Visit {
-  const object = objectBySlug(slug);
+  const object = objectBySlug(slug, q.workspaceId ?? WORKSPACE_ID, q.principalId ?? CURRENT_USER);
   if (!object) return { surface: "denied", principal: GUEST_PRINCIPAL };
+  return visitForObject(object, q, opts);
+}
 
-  const principalId = q.u ?? (q.k ? undefined : CURRENT_USER);
+function visitForObject(object: WorkspaceObject, q: VisitorQuery, opts: { embed?: boolean }): Visit {
+  const principalId = q.principalId;
   const role = resolveAccess(object, { ...(principalId ? { principalId } : {}), ...(q.k ? { token: q.k } : {}) });
   const surface = surfaceForAccess(role, opts);
   const principal =
@@ -196,17 +380,23 @@ export function resolveVisit(slug: string, q: VisitorQuery, opts: { embed?: bool
 }
 
 /** Read `?u`/`?k` out of a Next.js searchParams bag. */
-export function visitorQuery(sp: Record<string, string | string[] | undefined>): VisitorQuery {
+export function visitorQuery(
+  sp: Record<string, string | string[] | undefined>,
+  principalId?: string,
+  workspaceId = WORKSPACE_ID,
+): VisitorQuery {
   const first = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);
-  const u = first(sp.u);
   const k = first(sp.k);
-  return { ...(u ? { u } : {}), ...(k ? { k } : {}) };
+  return { workspaceId, ...(principalId ? { principalId } : {}), ...(k ? { k } : {}) };
 }
 
-/** Read `?u`/`?k` out of a request URL (API routes). */
-export function visitorFromUrl(url: string): VisitorQuery {
+/** Read the share token from a request URL and combine it with Clerk identity. */
+export function visitorFromUrl(
+  url: string,
+  principalId?: string,
+  workspaceId = WORKSPACE_ID,
+): VisitorQuery {
   const sp = new URL(url).searchParams;
-  const u = sp.get("u");
   const k = sp.get("k");
-  return { ...(u ? { u } : {}), ...(k ? { k } : {}) };
+  return { workspaceId, ...(principalId ? { principalId } : {}), ...(k ? { k } : {}) };
 }

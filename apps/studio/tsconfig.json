@@ -9,6 +9,12 @@
     "jsx": "react-jsx",
     "module": "ESNext",
     "moduleResolution": "Bundler",
+    "baseUrl": ".",
+    "paths": {
+      "@/*": [
+        "./*"
+      ]
+    },
     "strict": true,
     "noEmit": true,
     "esModuleInterop": true,

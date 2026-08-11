@@ -54,20 +54,14 @@ export interface Workspace {
   objects: Map<string, WorkspaceObject>;
 }
 
-let slugSeq = 0;
 function makeSlug(name: string): string {
-  slugSeq += 1;
   const base = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 32) || "app";
-  return `${base}-${slugSeq.toString(36)}`;
+  return `${base}-${crypto.randomUUID().slice(0, 8)}`;
 }
 
-/** Unguessable token. In production use crypto.randomUUID()/randomBytes. */
+/** Unguessable capability token for bearer share links. */
 function makeToken(): string {
-  return (
-    Math.random().toString(36).slice(2) +
-    Math.random().toString(36).slice(2) +
-    Date.now().toString(36)
-  );
+  return crypto.randomUUID().replaceAll("-", "") + crypto.randomUUID().replaceAll("-", "");
 }
 
 export function createWorkspace(id: string, name: string): Workspace {
@@ -86,7 +80,7 @@ export interface CreateObjectInput {
 export function createObject(ws: Workspace, input: CreateObjectInput): WorkspaceObject {
   const now = new Date().toISOString();
   const obj: WorkspaceObject = {
-    id: `obj_${ws.objects.size + 1}`,
+    id: `obj_${crypto.randomUUID()}`,
     kind: input.kind,
     name: input.name,
     slug: makeSlug(input.name),
@@ -227,3 +221,5 @@ export function embedSnippet(base: string, ws: Workspace, obj: WorkspaceObject, 
   const src = embedUrl(base, ws, obj, token);
   return `<iframe src="${src}" style="width:100%;height:600px;border:0" title="${obj.name}"></iframe>`;
 }
+
+export * from "./repository.ts";

@@ -6,9 +6,16 @@ import {
   appUrl,
   embedSnippet,
   type ShareRole,
+  type Workspace,
   type WorkspaceObject,
 } from "@fabric/workspace";
-import { getWorkspace, objectBySlug } from "../../../lib/workspace";
+import {
+  loadWorkspace,
+  resolveWorkspaceVisit,
+  saveWorkspaceObject,
+} from "../../../lib/workspace";
+import { currentIdentity, unauthorized } from "../../../lib/auth";
+import { inviteToWorkspaceObject } from "../../../lib/invitations";
 
 /**
  * The sharing endpoint — the server side of the Share dialog.
@@ -36,8 +43,7 @@ function currentMode(obj: WorkspaceObject): ShareMode {
   return "restricted";
 }
 
-function describe(base: string, slug: string, obj: WorkspaceObject): ShareResponse {
-  const ws = getWorkspace();
+function describe(base: string, slug: string, obj: WorkspaceObject, ws: Workspace): ShareResponse {
   // The link carries the token only while "anyone with the link" is on.
   const token = obj.linkRole ? obj.shareToken : undefined;
   return {
@@ -48,22 +54,67 @@ function describe(base: string, slug: string, obj: WorkspaceObject): ShareRespon
 }
 
 export async function POST(req: Request) {
+  const identity = await currentIdentity();
+  if (!identity) return unauthorized();
   const url = new URL(req.url);
   const base = url.origin;
   const body = (await req.json()) as {
     slug: string;
     mode?: ShareMode;
     invite?: { principalId: string; role: ShareRole };
+    inviteEmail?: {
+      email: string;
+      role: "editor" | "viewer";
+      appRoles?: string[];
+    };
   };
 
-  const obj = objectBySlug(body.slug);
+  const ws = await loadWorkspace(identity.workspaceId, identity.id);
+  const visit = await resolveWorkspaceVisit(
+    identity.workspaceId,
+    identity.id,
+    body.slug,
+    { principalId: identity.id, workspaceId: identity.workspaceId },
+  );
+  if (visit.role !== "owner") {
+    return Response.json({ ok: false, error: "only owners can change sharing" }, { status: 403 });
+  }
+  const obj = visit.object;
   if (!obj) return Response.json({ ok: false, error: `no object for slug ${body.slug}` }, { status: 404 });
-  const ws = getWorkspace();
+
+  if (body.inviteEmail) {
+    try {
+      await inviteToWorkspaceObject({
+        identity,
+        object: obj,
+        email: body.inviteEmail.email,
+        documentRole: body.inviteEmail.role,
+        appRoles: body.inviteEmail.appRoles ?? [],
+        redirectUrl: `${base}/w/${identity.workspaceId}/${obj.slug}`,
+      });
+      return Response.json({
+        ok: true,
+        invited: true,
+        ...describe(base, body.slug, obj, ws),
+      });
+    } catch (error) {
+      console.error("[fabric-share] invitation failed", {
+        workspaceId: identity.workspaceId,
+        objectId: obj.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return Response.json(
+        { ok: false, error: error instanceof Error ? error.message : "Could not send invitation" },
+        { status: 400 },
+      );
+    }
+  }
 
   // Invite a specific person (like typing an email in Google Docs).
   if (body.invite) {
     share(obj, body.invite.principalId, body.invite.role);
-    return Response.json({ ok: true, ...describe(base, body.slug, obj) });
+    await saveWorkspaceObject(identity.workspaceId, obj);
+    return Response.json({ ok: true, ...describe(base, body.slug, obj, ws) });
   }
 
   // Switch the link-sharing mode.
@@ -87,5 +138,6 @@ export async function POST(req: Request) {
     // no mode → just report current state (used when the dialog opens).
   }
 
-  return Response.json({ ok: true, ...describe(base, body.slug, obj) });
+  await saveWorkspaceObject(identity.workspaceId, obj);
+  return Response.json({ ok: true, ...describe(base, body.slug, obj, ws) });
 }

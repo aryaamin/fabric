@@ -8,6 +8,7 @@ import type { DiffChip } from "../lib/patch-summary";
 import { Renderer } from "./Renderer";
 import { ShareDialog } from "./ShareDialog";
 import { VersionTimeline } from "./VersionTimeline";
+import { MessageResponse } from "./ai-elements/message";
 import { Badge } from "./ui/Badge";
 import { Button } from "./ui/Button";
 import { ErrorState } from "./ui/Empty";
@@ -41,6 +42,8 @@ interface Message {
 
 export function AppEditor({
   slug,
+  workspaceId,
+  accessToken,
   name,
   icon,
   viewName,
@@ -51,6 +54,8 @@ export function AppEditor({
   examples,
 }: {
   slug: string;
+  workspaceId: string;
+  accessToken?: string;
   name: string;
   icon: string;
   viewName: string;
@@ -60,6 +65,10 @@ export function AppEditor({
   plannerLabel: string;
   examples: string[];
 }) {
+  const apiQuery = `?${new URLSearchParams({
+    w: workspaceId,
+    ...(accessToken ? { k: accessToken } : {}),
+  }).toString()}`;
   const [tree, setTree] = useState<RenderNode>(initialView);
   const [preview, setPreview] = useState<{ view: RenderNode; label: string } | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -85,7 +94,7 @@ export function AppEditor({
     scrollChat();
 
     try {
-      const res = await fetch("/api/edit", {
+      const res = await fetch(`/api/edit${apiQuery}`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ slug, prompt }),
@@ -123,7 +132,7 @@ export function AppEditor({
 
   /** A form inside the app submitted. Raw values only — the server maps them. */
   async function submit(action: string, values: Record<string, unknown>) {
-    const res = await fetch("/api/submit", {
+    const res = await fetch(`/api/submit${apiQuery}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ slug, view: viewName, action, form: values }),
@@ -137,7 +146,7 @@ export function AppEditor({
   /** A button inside the app fired. */
   async function invoke(action: string, args: Record<string, unknown>) {
     setError(null);
-    const res = await fetch("/api/edit", {
+    const res = await fetch(`/api/edit${apiQuery}`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ slug, action, args }),
@@ -280,7 +289,7 @@ export function AppEditor({
                 ) : (
                   <div key={i} className="animate-rise flex flex-col gap-2">
                     <div className={cn("text-[13px] leading-relaxed", m.failed ? "text-warn" : "text-ink-2")}>
-                      {m.text}
+                      <MessageResponse>{m.text}</MessageResponse>
                     </div>
 
                     {m.chips && m.chips.length > 0 && (
@@ -359,6 +368,7 @@ export function AppEditor({
         open={historyOpen}
         onClose={() => setHistoryOpen(false)}
         slug={slug}
+        apiQuery={apiQuery}
         onPreview={(view, label) => setPreview(view && label ? { view, label } : null)}
         onCommitted={(view) => setTree(view)}
       />

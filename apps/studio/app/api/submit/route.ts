@@ -1,5 +1,6 @@
-import { getRuntime, ensureRuntime } from "../../../lib/runtime";
-import { resolveVisit, visitorFromUrl } from "../../../lib/workspace";
+import { getRuntime, ensureRuntime, WORKSPACE_ID } from "../../../lib/runtime";
+import { resolveWorkspaceVisit, visitorFromUrl } from "../../../lib/workspace";
+import { currentIdentity } from "../../../lib/auth";
 
 /**
  * The submit endpoint — how data gets *into* an app from its own UI.
@@ -18,7 +19,10 @@ import { resolveVisit, visitorFromUrl } from "../../../lib/workspace";
  * to a form if the app's own permission spec says guests can.
  */
 export async function POST(req: Request) {
-  await ensureRuntime();
+  const identity = await currentIdentity();
+  const workspaceId =
+    identity?.workspaceId ?? new URL(req.url).searchParams.get("w") ?? WORKSPACE_ID;
+  await ensureRuntime(workspaceId, identity?.id);
 
   const body = (await req.json()) as {
     slug: string;
@@ -27,15 +31,21 @@ export async function POST(req: Request) {
     form: Record<string, unknown>;
   };
 
-  const visit = resolveVisit(body.slug, visitorFromUrl(req.url));
+  const visit = await resolveWorkspaceVisit(
+    workspaceId,
+    identity?.id ?? "u_owner",
+    body.slug,
+    visitorFromUrl(req.url, identity?.id, workspaceId),
+  );
   if (visit.surface === "denied") {
     return Response.json({ ok: false, error: "no access to this app" }, { status: 403 });
   }
+  const appId = visit.object?.appId ?? body.slug;
 
   const started = performance.now();
   try {
-    const { result, view } = await getRuntime().submit(
-      body.slug,
+    const { result, view } = await getRuntime(workspaceId).submit(
+      appId,
       body.view,
       body.action,
       body.form ?? {},

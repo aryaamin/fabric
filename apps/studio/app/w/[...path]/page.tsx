@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { EXAMPLE_PROMPTS } from "@fabric/orchestrator";
-import { ensureRuntime, getRuntime, primaryView } from "../../../lib/runtime";
-import { allObjects, resolveVisit, visitorQuery } from "../../../lib/workspace";
+import { ensureRuntime, getRuntime, primaryView, WORKSPACE_ID } from "../../../lib/runtime";
+import { listWorkspaceObjects, resolveWorkspaceVisit, visitorQuery } from "../../../lib/workspace";
 import { choosePlanner } from "../../../lib/planner";
+import { currentIdentity } from "../../../lib/auth";
 import { AppEditor, type RailItem } from "../../../components/AppEditor";
 
 /**
@@ -23,8 +24,7 @@ import { AppEditor, type RailItem } from "../../../components/AppEditor";
  * initial tree. That matters beyond politeness: a shared app link should paint
  * the running application on first byte, exactly as a shared document does.
  *
- * Real auth is out of scope, so the visitor is simulated from the query string:
- *   ?u=<id>  a signed-in person   ?k=<token>  the share-link token
+ * Clerk supplies signed-in identity; ?k carries an optional bearer share token.
  */
 export default async function AppPage({
   params,
@@ -36,16 +36,24 @@ export default async function AppPage({
   const { path } = await params;
   const slug = path[path.length - 1] ?? "";
   const sp = await searchParams;
-  await ensureRuntime();
+  const identity = await currentIdentity();
+  const workspaceId = path.length > 1 ? path[path.length - 2]! : identity?.workspaceId ?? WORKSPACE_ID;
+  await ensureRuntime(workspaceId, identity?.id);
 
-  const visit = resolveVisit(slug, visitorQuery(sp));
+  const query = visitorQuery(sp, identity?.id, workspaceId);
+  const visit = await resolveWorkspaceVisit(
+    workspaceId,
+    identity?.id ?? "u_owner",
+    slug,
+    query,
+  );
 
   if (!visit.object) return <Lock title="404" body={`No app named “${slug}”.`} />;
   if (visit.surface === "denied") {
     return <Lock title="No access" body="Ask the owner to share this app with you, or to send you a link." icon="🔒" />;
   }
 
-  const rt = getRuntime();
+  const rt = getRuntime(workspaceId);
   const doc = rt.installed(visit.object.appId ?? slug);
   if (!doc) return <Lock title="Not installed" body={`“${slug}” is not installed in this runtime.`} />;
 
@@ -56,11 +64,19 @@ export default async function AppPage({
   // specific visitor is allowed to see it.
   const initialView = await rt.renderView(doc.id, viewName, visit.principal);
 
-  const rail: RailItem[] = allObjects().map((o) => ({ slug: o.slug, name: o.name, icon: o.icon ?? "✳" }));
+  const rail: RailItem[] = identity
+    ? (await listWorkspaceObjects(workspaceId, identity.id)).map((o) => ({
+        slug: o.slug,
+        name: o.name,
+        icon: o.icon ?? "✳",
+      }))
+    : [];
 
   return (
     <AppEditor
       slug={slug}
+      workspaceId={workspaceId}
+      accessToken={query.k}
       name={visit.object.name}
       icon={visit.object.icon ?? "✳"}
       viewName={viewName}

@@ -1,4 +1,8 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
 
 /*
  * Fabric Studio design system.
@@ -49,6 +53,48 @@
   --ease-out-quint: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+@theme inline {
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+}
+
+:root,
+.dark {
+  --background: var(--color-base);
+  --foreground: var(--color-ink);
+  --card: var(--color-panel);
+  --card-foreground: var(--color-ink);
+  --popover: var(--color-raised);
+  --popover-foreground: var(--color-ink);
+  --primary: var(--color-accent);
+  --primary-foreground: white;
+  --secondary: var(--color-raised);
+  --secondary-foreground: var(--color-ink);
+  --muted: var(--color-hover);
+  --muted-foreground: var(--color-ink-2);
+  --accent: var(--color-accent-dim);
+  --accent-foreground: var(--color-ink);
+  --destructive: var(--color-bad);
+  --border: var(--color-line);
+  --input: var(--color-line);
+  --ring: var(--color-accent);
+}
+
 @layer base {
   * {
     border-color: var(--color-line);
@@ -69,7 +115,6 @@
     letter-spacing: -0.006em;
   }
 
-  /* Tabular figures everywhere numbers appear in mono. */
   .font-mono,
   code,
   kbd {
@@ -112,12 +157,6 @@
     letter-spacing: inherit;
   }
 }
-
-/* ------------------------------------------------------------------ */
-/* Motion. Small, fast, purposeful: enter animations for content that  */
-/* arrives (rows, messages, cards) and growth for chart bars. Nothing  */
-/* animates layout, so there is never a shift.                         */
-/* ------------------------------------------------------------------ */
 
 @keyframes fb-rise {
   from {
@@ -198,7 +237,6 @@
   animation: fb-spin 0.8s linear infinite;
 }
 
-/* Staggered enter for lists: set style={{ animationDelay }} on the child. */
 @utility skeleton {
   position: relative;
   overflow: hidden;
@@ -215,7 +253,6 @@
     animation: fb-shimmer 1.4s infinite;
   }
 
-  /* A hairline grid used behind hero surfaces. Extremely subtle. */
   .grid-bg {
     background-image:
       linear-gradient(to right, #ffffff06 1px, transparent 1px),
@@ -228,7 +265,6 @@
       0 12px 40px -12px color-mix(in oklab, var(--color-accent) 45%, transparent);
   }
 
-  /* The animated pulse that travels a connection wire. */
   .wire-flow {
     stroke-dasharray: 6 10;
     animation: fb-dash 6s linear infinite;

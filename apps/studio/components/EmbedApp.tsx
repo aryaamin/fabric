@@ -15,12 +15,14 @@ import { ErrorState } from "./ui/Empty";
  */
 export function EmbedApp({
   slug,
+  workspaceId,
   viewName,
   initialView,
   token,
   readOnly,
 }: {
   slug: string;
+  workspaceId: string;
   viewName: string;
   initialView: RenderNode;
   token?: string;
@@ -31,7 +33,10 @@ export function EmbedApp({
 
   // The capability token travels with every write, exactly as it does in the URL:
   // an embed is authorized by the link that placed it.
-  const qs = token ? `?k=${encodeURIComponent(token)}` : "";
+  const qs = `?${new URLSearchParams({
+    w: workspaceId,
+    ...(token ? { k: token } : {}),
+  }).toString()}`;
 
   async function submit(action: string, values: Record<string, unknown>) {
     const res = await fetch(`/api/submit${qs}`, {

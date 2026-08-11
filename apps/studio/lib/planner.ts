@@ -35,7 +35,7 @@ export function choosePlanner(): PlannerChoice {
   if (!hasModel) {
     return { planner: new ScriptedPlanner(), kind: "scripted", label: "scripted planner · no model configured" };
   }
-  const model = process.env.FABRIC_MODEL ?? "anthropic/claude-sonnet-4.6";
+  const model = process.env.FABRIC_MODEL ?? "anthropic/claude-sonnet-5";
   const fallback = new ScriptedPlanner();
   return {
     planner: {
@@ -46,7 +46,11 @@ export function choosePlanner(): PlannerChoice {
           const { createAiPlanner } = await import("./ai-planner");
           const patches = await createAiPlanner(model).plan(input);
           if (patches.length > 0) return patches;
-        } catch {
+        } catch (error) {
+          console.warn("[fabric-ai] model planner failed; using scripted fallback", {
+            model,
+            error: error instanceof Error ? error.message : String(error),
+          });
           // fall through to the scripted planner
         }
         return fallback.plan(input);

@@ -9,6 +9,7 @@ import { BaseCapability, CapabilityError } from "@fabric/capabilities";
 import { InMemoryDataStore, type DataStore, type Filter, type Sort } from "./store.ts";
 
 export * from "./store.ts";
+export * from "./postgres.ts";
 
 const manifest: CapabilityManifest = {
   name: "storage",

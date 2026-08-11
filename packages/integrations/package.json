@@ -8,6 +8,7 @@
   "dependencies": {
     "@fabric/capabilities": "0.1.0",
     "@fabric/ir": "0.1.0",
+    "@fabric/runtime": "0.1.0",
     "@fabric/validator": "0.1.0"
   }
 }

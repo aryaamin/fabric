@@ -50,6 +50,9 @@ export function ShareDialog({
   const [state, setState] = useState<ShareState | null>(null);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState<"editor" | "viewer">("viewer");
+  const [inviteStatus, setInviteStatus] = useState<string | null>(null);
 
   const post = useCallback(
     async (mode?: ShareMode) => {
@@ -83,6 +86,31 @@ export function ShareDialog({
     setTimeout(() => setCopied(null), 1300);
   }
 
+  async function sendInvite() {
+    if (!inviteEmail.trim() || busy) return;
+    setBusy(true);
+    setInviteStatus(null);
+    try {
+      const res = await fetch("/api/share", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          slug,
+          inviteEmail: { email: inviteEmail.trim(), role: inviteRole },
+        }),
+      });
+      const data = (await res.json()) as { ok: boolean; error?: string };
+      if (!data.ok) {
+        setInviteStatus(data.error ?? "Could not send invitation.");
+        return;
+      }
+      setInviteEmail("");
+      setInviteStatus("Invitation sent.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const shareable = state && state.mode !== "restricted";
 
   return (
@@ -101,6 +129,38 @@ export function ShareDialog({
         </div>
       ) : (
         <>
+          <div className="mb-4 rounded-md border border-line bg-raised p-3">
+            <label htmlFor="share-email" className="text-[12px] font-medium text-ink">
+              Invite by email
+            </label>
+            <div className="mt-2 flex gap-2">
+              <input
+                id="share-email"
+                type="email"
+                value={inviteEmail}
+                onChange={(event) => setInviteEmail(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") void sendInvite();
+                }}
+                placeholder="teammate@company.com"
+                className="h-8.5 min-w-0 flex-1 rounded-md border border-line bg-base px-2.5 text-[12.5px] text-ink placeholder:text-ink-3"
+              />
+              <select
+                aria-label="Invitation role"
+                value={inviteRole}
+                onChange={(event) => setInviteRole(event.target.value as "editor" | "viewer")}
+                className="h-8.5 rounded-md border border-line bg-base px-2 text-[12px] text-ink-2"
+              >
+                <option value="viewer">Viewer</option>
+                <option value="editor">Editor</option>
+              </select>
+              <Button size="sm" variant="primary" loading={busy} onClick={() => void sendInvite()}>
+                Invite
+              </Button>
+            </div>
+            {inviteStatus ? <p className="mt-2 text-[12px] text-ink-3">{inviteStatus}</p> : null}
+          </div>
+
           <div className="flex flex-col gap-1.5">
             {MODES.map((m) => {
               const active = state.mode === m.id;

@@ -1,6 +1,12 @@
 import { Orchestrator } from "@fabric/orchestrator";
-import { ensureRuntime, getRuntime, WORKSPACE_ID, OWNER_PRINCIPAL } from "../../../lib/runtime";
-import { registerObject } from "../../../lib/workspace";
+import {
+  ensureRuntime,
+  getRuntime,
+  persistVersion,
+  STUDIO_INSTANCE_ID,
+} from "../../../lib/runtime";
+import { createWorkspaceObject } from "../../../lib/workspace";
+import { currentIdentity, unauthorized } from "../../../lib/auth";
 import { choosePlanner } from "../../../lib/planner";
 import { summarizePatches, type DiffChip } from "../../../lib/patch-summary";
 import { SEED_DOCS } from "../../../lib/seed-apps";
@@ -30,7 +36,9 @@ const TEMPLATES: { match: RegExp; appId: string; icon: string }[] = [
 ];
 
 export async function POST(req: Request) {
-  await ensureRuntime();
+  const identity = await currentIdentity();
+  if (!identity) return unauthorized();
+  await ensureRuntime(identity.workspaceId, identity.id);
 
   const body = (await req.json()) as { prompt?: string; template?: string; name?: string };
   const prompt = (body.prompt ?? "").trim();
@@ -40,7 +48,7 @@ export async function POST(req: Request) {
     TEMPLATES.find((t) => t.match.test(prompt)) ??
     TEMPLATES[0]!;
 
-  const rt = getRuntime();
+  const rt = getRuntime(identity.workspaceId);
   const started = performance.now();
 
   // The template's own head version is the fork point.
@@ -71,12 +79,29 @@ export async function POST(req: Request) {
   }
 
   try {
-    rt.install(doc, { workspaceId: WORKSPACE_ID, author: OWNER_PRINCIPAL.id, message: prompt || `created ${name}` });
+    rt.install(doc, {
+      workspaceId: identity.workspaceId,
+      instanceId: STUDIO_INSTANCE_ID,
+      author: identity.id,
+      message: prompt || `created ${name}`,
+    });
+    await persistVersion(identity.workspaceId, {
+      appId,
+      doc,
+      author: identity.id,
+      message: prompt || `created ${name}`,
+    });
   } catch (e) {
     return Response.json({ ok: false, error: (e as Error).message }, { status: 400 });
   }
 
-  const obj = registerObject(appId, name, template.icon);
+  const obj = await createWorkspaceObject(
+    identity.workspaceId,
+    identity.id,
+    appId,
+    name,
+    template.icon,
+  );
 
   return Response.json({
     ok: true,

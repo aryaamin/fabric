@@ -1,6 +1,20 @@
 import { diff } from "@fabric/versioning";
-import { ensureRuntime, getRuntime, irBytes, primaryView, WORKSPACE_ID } from "../../../lib/runtime";
-import { resolveVisit, visitorFromUrl, registerObject, objectBySlug } from "../../../lib/workspace";
+import {
+  ensureRuntime,
+  durableVersionRepository,
+  getRuntime,
+  irBytes,
+  primaryView,
+  STUDIO_INSTANCE_ID,
+  WORKSPACE_ID,
+} from "../../../lib/runtime";
+import {
+  resolveWorkspaceVisit,
+  visitorFromUrl,
+  createWorkspaceObject,
+  findWorkspaceObject,
+} from "../../../lib/workspace";
+import { currentIdentity, unauthorized } from "../../../lib/auth";
 import { summarizeChanges } from "../../../lib/patch-summary";
 
 /**
@@ -33,26 +47,39 @@ export interface VersionEntry {
 }
 
 export async function GET(req: Request) {
-  await ensureRuntime();
+  const identity = await currentIdentity();
   const url = new URL(req.url);
+  const workspaceId = identity?.workspaceId ?? url.searchParams.get("w") ?? WORKSPACE_ID;
+  await ensureRuntime(workspaceId, identity?.id);
   const slug = url.searchParams.get("slug") ?? "";
 
-  const visit = resolveVisit(slug, visitorFromUrl(req.url));
+  const visit = await resolveWorkspaceVisit(
+    workspaceId,
+    identity?.id ?? "u_owner",
+    slug,
+    visitorFromUrl(req.url, identity?.id, workspaceId),
+  );
   if (visit.surface === "denied") {
     return Response.json({ ok: false, error: "no access to this app" }, { status: 403 });
   }
+  const appId = visit.object?.appId ?? slug;
 
-  const rt = getRuntime();
-  const head = rt.versions.head(slug);
+  const rt = getRuntime(workspaceId);
+  const repository = durableVersionRepository();
+  const head = repository
+    ? await repository.head(workspaceId, appId)
+    : rt.versions.head(appId) ?? null;
   // Oldest first: a timeline reads better forwards, and the scrubber's index
   // then maps directly onto "how far back in time am I".
-  const history = rt.versions
-    .all(slug)
+  const history = (
+    repository ? await repository.all(workspaceId, appId) : rt.versions.all(appId)
+  )
     .slice()
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  const byId = new Map(history.map((version) => [version.id, version]));
 
   const entries: VersionEntry[] = history.map((v) => {
-    const parent = v.parent ? rt.versions.get(v.parent) : undefined;
+    const parent = v.parent ? byId.get(v.parent) : undefined;
     const changes = parent ? diff(parent.doc, v.doc) : [];
     return {
       id: v.id,
@@ -71,15 +98,23 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  await ensureRuntime();
+  const identity = await currentIdentity();
+  const workspaceId =
+    identity?.workspaceId ?? new URL(req.url).searchParams.get("w") ?? WORKSPACE_ID;
+  await ensureRuntime(workspaceId, identity?.id);
   const body = (await req.json()) as {
     slug: string;
-    op: "preview" | "restore" | "fork";
+    op: "preview" | "compare" | "restore" | "fork";
     versionId?: string;
     name?: string;
   };
 
-  const visit = resolveVisit(body.slug, visitorFromUrl(req.url));
+  const visit = await resolveWorkspaceVisit(
+    workspaceId,
+    identity?.id ?? "u_owner",
+    body.slug,
+    visitorFromUrl(req.url, identity?.id, workspaceId),
+  );
   if (visit.surface === "denied") {
     return Response.json({ ok: false, error: "no access to this app" }, { status: 403 });
   }
@@ -89,44 +124,83 @@ export async function POST(req: Request) {
     return Response.json({ ok: false, error: "view-only access cannot restore" }, { status: 403 });
   }
 
-  const rt = getRuntime();
-  const version = body.versionId ? rt.versions.get(body.versionId) : rt.versions.head(body.slug);
+  if (body.op === "fork" && !identity) return unauthorized();
+  const appId = visit.object?.appId ?? body.slug;
+  const rt = getRuntime(workspaceId);
+  const repository = durableVersionRepository();
+  const version = repository
+    ? body.versionId
+      ? await repository.get(workspaceId, body.versionId)
+      : await repository.head(workspaceId, appId)
+    : body.versionId
+      ? rt.versions.get(body.versionId)
+      : rt.versions.head(appId);
   if (!version) return Response.json({ ok: false, error: "unknown version" }, { status: 404 });
 
   const started = performance.now();
 
   try {
+    if (body.op === "compare") {
+      const live = repository
+        ? await repository.head(workspaceId, appId)
+        : rt.versions.head(appId);
+      if (!live) {
+        return Response.json({ ok: false, error: "live version not found" }, { status: 404 });
+      }
+      return Response.json({
+        ok: true,
+        from: version.id,
+        to: live.id,
+        changes: diff(version.doc, live.doc),
+      });
+    }
+
     if (body.op === "preview") {
       const viewName = primaryView(version.doc);
       if (!viewName) return Response.json({ ok: false, error: "version declares no views" }, { status: 400 });
-      const view = await rt.previewView(body.slug, version.doc, viewName, visit.principal);
+      const view = await rt.previewView(appId, version.doc, viewName, visit.principal);
       return Response.json({ ok: true, view, ms: round(performance.now() - started) });
     }
 
     if (body.op === "restore") {
+      await repository?.restore(workspaceId, appId, version.id);
       rt.install(version.doc, {
-        workspaceId: WORKSPACE_ID,
+        workspaceId,
+        instanceId: STUDIO_INSTANCE_ID,
         author: visit.principal.id,
         message: `restored version ${version.id.slice(0, 8)}`,
       });
       const viewName = primaryView(version.doc)!;
-      const view = await rt.renderView(body.slug, viewName, visit.principal);
+      const view = await rt.renderView(appId, viewName, visit.principal);
       return Response.json({ ok: true, view, ms: round(performance.now() - started) });
     }
 
     // fork: a new app rooted at this version. A fork is a copy of a JSON
     // document — there is no repository to clone and no environment to create,
     // which is why it can be offered as a single click.
-    const object = objectBySlug(body.slug);
+    const object = await findWorkspaceObject(
+      workspaceId,
+      body.slug,
+      identity?.id ?? "u_owner",
+    );
     const baseName = body.name ?? `${object?.name ?? body.slug} (copy)`;
-    const newId = uniqueAppId(body.slug, (id) => rt.installed(id) !== undefined);
-    const forked = rt.versions.fork(version.id, newId, visit.principal.id);
+    const newId = uniqueAppId(appId, (id) => rt.installed(id) !== undefined);
+    const forked = repository
+      ? await repository.fork(workspaceId, version.id, newId, visit.principal.id)
+      : rt.versions.fork(version.id, newId, visit.principal.id);
     rt.install(forked.doc, {
-      workspaceId: WORKSPACE_ID,
+      workspaceId,
+      instanceId: STUDIO_INSTANCE_ID,
       author: visit.principal.id,
       message: `forked from ${body.slug}`,
     });
-    const obj = registerObject(newId, baseName, object?.icon ?? "✳");
+    const obj = await createWorkspaceObject(
+      workspaceId,
+      identity!.id,
+      newId,
+      baseName,
+      object?.icon ?? "✳",
+    );
 
     return Response.json({
       ok: true,
