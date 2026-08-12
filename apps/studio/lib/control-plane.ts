@@ -3,6 +3,7 @@ import {
   PostgresCloudRepository,
   createDeployment,
   detectBuildPlans,
+  effectiveExecutionPolicy,
   executeBuild,
   refreshDeployment,
   type Build,
@@ -21,7 +22,17 @@ import {
   type SealSnapshotInput,
   type SourceFile,
   type SourceFileInput,
+  type ManifestSource,
+  type ApplicationManifest,
+  applicationManifestFromFiles,
+  createSnapshot,
+  inferredApplicationManifest,
+  inspectLogicalSchema,
+  manifestProjectServices,
+  parseApplicationManifest,
+  planSchemaMigration,
   projectTemplateFiles,
+  serializeApplicationManifest,
 } from "@fabric/projects";
 import { resolveAccess, type ShareRole, type WorkspaceObject } from "@fabric/workspace";
 import type { StudioIdentity } from "./auth";
@@ -38,6 +49,25 @@ import {
   publishCloudBuild,
   publishCloudDeployment,
 } from "./queue";
+import {
+  claimWorkspaceQuota,
+  fabricExecutionPolicy,
+  projectCloudUsage,
+  projectSuspensionStatus,
+  setProjectSuspended,
+  workspaceCloudStatus,
+} from "./cloud-policy";
+import {
+  approveSchemaMigration,
+  getSchemaMigrationReview,
+  listSchemaMigrationReviews,
+  recordSchemaMigrationSealed,
+} from "./schema-migrations";
+import {
+  executeSchemaMigration,
+  listSchemaMigrationRuns,
+  rollbackSchemaMigration,
+} from "./schema-migration-executor";
 import {
   createCloudProjectObject,
   findWorkspaceProjectObject,
@@ -89,7 +119,16 @@ export class StudioControlPlane {
   ): Promise<ProjectResult> {
     await loadWorkspace(this.identity.workspaceId, this.identity.id);
     const project = await this.projects.create(this.identity.workspaceId, input);
-    const templateFiles = projectTemplateFiles(input.template ?? "empty", project.name);
+    const templateFiles = [
+      ...projectTemplateFiles(input.template ?? "empty", project.name),
+      {
+        path: "fabric.json",
+        content: serializeApplicationManifest(
+          inferredApplicationManifest(project.name, project.services),
+        ),
+        encoding: "utf8" as const,
+      },
+    ];
     if (templateFiles.length > 0) {
       await this.projects.writeFiles(this.identity.workspaceId, project.id, templateFiles);
     }
@@ -156,11 +195,67 @@ export class StudioControlPlane {
     projectId: string,
     input: Omit<SealSnapshotInput, "author"> = {},
   ): Promise<ProjectSnapshot> {
-    await this.getProject(projectId, "editor");
-    return this.projects.sealSnapshot(this.identity.workspaceId, projectId, {
+    const { project } = await this.getProject(projectId, "editor");
+    const files = await this.projects.listFiles(this.identity.workspaceId, projectId);
+    const desiredManifest = applicationManifestFromFiles(files, {
+      name: project.name,
+      services: project.services,
+    });
+    const baselineSnapshot = project.headSnapshotId
+      ? await this.getSnapshot(projectId, project.headSnapshotId)
+      : undefined;
+    const baselineManifest = baselineSnapshot
+      ? applicationManifestFromFiles(baselineSnapshot.files, {
+          name: project.name,
+          services: project.services,
+        })
+      : undefined;
+    const schemaPlan = planSchemaMigration(
+      baselineManifest?.manifest.spec.data,
+      desiredManifest.manifest.spec.data,
+    );
+    if (schemaPlan.approvalRequired) {
+      const review = await getSchemaMigrationReview(
+        this.identity.workspaceId,
+        projectId,
+        schemaPlan.id,
+      );
+      if (!review || review.state !== "approved") {
+        throw new ControlPlaneError(
+          409,
+          "schema_approval_required",
+          `destructive schema migration ${schemaPlan.id} requires owner approval`,
+        );
+      }
+    }
+    const preview = createSnapshot({
+      workspaceId: this.identity.workspaceId,
+      projectId,
+      files,
+      parentId: input.parentId ?? project.headSnapshotId,
+      author: this.identity.id,
+      message: input.message,
+    });
+    await this.claimQuota({
+      projectId,
+      operation: "snapshot",
+      units: preview.files.reduce((total, file) => total + file.size, 0),
+      idempotencyKey: preview.id,
+    });
+    const snapshot = await this.projects.sealSnapshot(this.identity.workspaceId, projectId, {
       ...input,
       author: this.identity.id,
     });
+    if (schemaPlan.changes.length > 0) {
+      await recordSchemaMigrationSealed({
+        workspaceId: this.identity.workspaceId,
+        projectId,
+        plan: schemaPlan,
+        snapshotId: snapshot.id,
+        principalId: this.identity.id,
+      });
+    }
+    return snapshot;
   }
 
   async listSnapshots(projectId: string): Promise<ProjectSnapshot[]> {
@@ -186,7 +281,188 @@ export class StudioControlPlane {
     const id = snapshotId ?? project.headSnapshotId;
     if (!id) throw new ControlPlaneError(409, "snapshot_required", "seal a snapshot first");
     const snapshot = await this.getSnapshot(projectId, id);
-    return detectBuildPlans(snapshot, project.services);
+    const manifest = applicationManifestFromFiles(snapshot.files, {
+      name: project.name,
+      services: project.services,
+    });
+    return detectBuildPlans(snapshot, manifestProjectServices(manifest.manifest));
+  }
+
+  async getApplicationManifest(
+    projectId: string,
+    snapshotId?: string,
+  ): Promise<ManifestSource & { snapshotId?: string }> {
+    const { project } = await this.getProject(projectId);
+    const files = snapshotId
+      ? (await this.getSnapshot(projectId, snapshotId)).files
+      : await this.projects.listFiles(this.identity.workspaceId, projectId);
+    return {
+      ...applicationManifestFromFiles(files, {
+        name: project.name,
+        services: project.services,
+      }),
+      ...(snapshotId ? { snapshotId } : {}),
+    };
+  }
+
+  async writeApplicationManifest(
+    projectId: string,
+    manifest: unknown,
+  ): Promise<ManifestSource> {
+    await this.getProject(projectId, "editor");
+    const validated = parseApplicationManifest(manifest);
+    await this.projects.writeFiles(this.identity.workspaceId, projectId, [
+      {
+        path: "fabric.json",
+        content: serializeApplicationManifest(validated),
+        encoding: "utf8",
+      },
+    ]);
+    return {
+      manifest: validated as ApplicationManifest,
+      source: "declared",
+      path: "fabric.json",
+    };
+  }
+
+  async inspectApplicationSchema(projectId: string, snapshotId?: string) {
+    const source = await this.getApplicationManifest(projectId, snapshotId);
+    return {
+      projectId,
+      snapshotId: source.snapshotId,
+      source: source.source,
+      schema: inspectLogicalSchema(source.manifest.spec.data),
+    };
+  }
+
+  async previewSchemaMigration(projectId: string, baselineSnapshotId?: string) {
+    const { project } = await this.getProject(projectId);
+    const baselineId = baselineSnapshotId ?? project.headSnapshotId;
+    const [current, desired] = await Promise.all([
+      baselineId
+        ? this.getApplicationManifest(projectId, baselineId)
+        : Promise.resolve(undefined),
+      this.getApplicationManifest(projectId),
+    ]);
+    const currentSchema = inspectLogicalSchema(current?.manifest.spec.data);
+    const desiredSchema = inspectLogicalSchema(desired.manifest.spec.data);
+    const plan = planSchemaMigration(
+      current?.manifest.spec.data,
+      desired.manifest.spec.data,
+    );
+    const review = plan.approvalRequired
+      ? await getSchemaMigrationReview(
+          this.identity.workspaceId,
+          projectId,
+          plan.id,
+        )
+      : null;
+    return {
+      projectId,
+      baselineSnapshotId: baselineId,
+      current: currentSchema,
+      desired: desiredSchema,
+      plan,
+      approved: review?.state === "approved",
+      review,
+    };
+  }
+
+  async approveSchemaMigration(
+    projectId: string,
+    planId: string,
+    reason?: string,
+  ) {
+    await this.getProject(projectId, "owner");
+    const preview = await this.previewSchemaMigration(projectId);
+    if (preview.plan.id !== planId) {
+      throw new ControlPlaneError(
+        409,
+        "schema_plan_changed",
+        "schema changed after this migration preview; inspect it again",
+      );
+    }
+    try {
+      await approveSchemaMigration({
+        workspaceId: this.identity.workspaceId,
+        projectId,
+        plan: preview.plan,
+        principalId: this.identity.id,
+        reason,
+      });
+    } catch (error) {
+      if (error instanceof Error && error.message === "schema_approval_not_required") {
+        throw new ControlPlaneError(
+          409,
+          "schema_approval_not_required",
+          "this schema migration does not require explicit approval",
+        );
+      }
+      throw error;
+    }
+    return this.previewSchemaMigration(projectId);
+  }
+
+  async listSchemaMigrations(projectId: string) {
+    await this.getProject(projectId);
+    const [reviews, runs] = await Promise.all([
+      listSchemaMigrationReviews(this.identity.workspaceId, projectId),
+      listSchemaMigrationRuns(this.identity.workspaceId, projectId),
+    ]);
+    return { reviews, runs };
+  }
+
+  async applySchemaMigration(projectId: string, planId: string) {
+    await this.getProject(projectId, "owner");
+    const review = await getSchemaMigrationReview(
+      this.identity.workspaceId,
+      projectId,
+      planId,
+    );
+    if (!review || review.state !== "sealed" || !review.sealedSnapshotId) {
+      throw new ControlPlaneError(
+        409,
+        "schema_migration_not_sealed",
+        "seal the reviewed schema migration before applying it",
+      );
+    }
+    const targetSnapshot = await this.getSnapshot(
+      projectId,
+      review.sealedSnapshotId,
+    );
+    const [target, baseline] = await Promise.all([
+      this.getApplicationManifest(projectId, review.sealedSnapshotId),
+      targetSnapshot.parentId
+        ? this.getApplicationManifest(projectId, targetSnapshot.parentId)
+        : Promise.resolve(undefined),
+    ]);
+    return executeSchemaMigration({
+      workspaceId: this.identity.workspaceId,
+      projectId,
+      targetSnapshotId: review.sealedSnapshotId,
+      plan: review.plan,
+      backupSchema: inspectLogicalSchema(baseline?.manifest.spec.data),
+      desiredSchema: inspectLogicalSchema(target.manifest.spec.data),
+      principalId: this.identity.id,
+    });
+  }
+
+  async rollbackSchemaMigration(projectId: string, runId: string) {
+    await this.getProject(projectId, "owner");
+    try {
+      return await rollbackSchemaMigration({
+        workspaceId: this.identity.workspaceId,
+        projectId,
+        runId,
+        principalId: this.identity.id,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.includes("not found")) {
+        throw new ControlPlaneError(404, "not_found", message);
+      }
+      throw new ControlPlaneError(409, "schema_rollback_unavailable", message);
+    }
   }
 
   async requestBuild(input: {
@@ -216,13 +492,28 @@ export class StudioControlPlane {
       throw new ControlPlaneError(409, "snapshot_required", "seal a snapshot first");
     }
     const snapshot = await this.getSnapshot(input.projectId, snapshotId);
+    const manifest = applicationManifestFromFiles(snapshot.files, {
+      name: project.name,
+      services: project.services,
+    }).manifest;
+    const services = manifestProjectServices(manifest);
     const service = input.service
-      ? project.services.find((candidate) => candidate.name === input.service)
-      : project.services[0];
+      ? services.find((candidate) => candidate.name === input.service)
+      : services[0];
     if (!service) {
       throw new ControlPlaneError(400, "invalid_service", `service ${input.service} not found`);
     }
     const plan = detectBuildPlans(snapshot, [service])[0]!;
+    await this.claimQuota({
+      projectId: input.projectId,
+      operation: "build",
+      idempotencyKey: input.idempotencyKey,
+      metadata: { snapshotId, service: service.name },
+      policy: effectiveExecutionPolicy(
+        fabricExecutionPolicy(),
+        manifest.spec.policies,
+      ),
+    });
     let build = await this.cloud.requestBuild({
       workspaceId: this.identity.workspaceId,
       projectId: input.projectId,
@@ -243,12 +534,7 @@ export class StudioControlPlane {
         snapshot,
         repository: this.cloud,
         executor: createStudioSandboxExecutor(),
-        limits: {
-          timeoutMs: 290_000,
-          memoryMb: 2_048,
-          cpu: 1,
-          network: "restricted",
-        },
+        limits: fabricExecutionPolicy().build,
       });
     }
     return build;
@@ -288,7 +574,7 @@ export class StudioControlPlane {
     buildId: string;
     idempotencyKey: string;
   }): Promise<Deployment> {
-    await this.getProject(input.projectId, "editor");
+    const { project } = await this.getProject(input.projectId, "editor");
     if (!deploymentProviderConfigured()) {
       throw new ControlPlaneError(
         503,
@@ -312,6 +598,45 @@ export class StudioControlPlane {
         "A deployment requires a successful build",
       );
     }
+    const [schemaReviews, schemaRuns] = await Promise.all([
+      listSchemaMigrationReviews(this.identity.workspaceId, input.projectId),
+      listSchemaMigrationRuns(this.identity.workspaceId, input.projectId),
+    ]);
+    const schemaReview = schemaReviews.find(
+      (review) =>
+        review.sealedSnapshotId === build.snapshotId &&
+        review.plan.changes.length > 0,
+    );
+    if (
+      schemaReview &&
+      !schemaRuns.some(
+        (run) =>
+          run.planId === schemaReview.planId &&
+          run.targetSnapshotId === build.snapshotId &&
+          run.state === "succeeded",
+      )
+    ) {
+      throw new ControlPlaneError(
+        409,
+        "schema_migration_required",
+        `apply schema migration ${schemaReview.planId} before deployment`,
+      );
+    }
+    const snapshot = await this.getSnapshot(input.projectId, build.snapshotId);
+    const deploymentPolicy = effectiveExecutionPolicy(
+      fabricExecutionPolicy(),
+      applicationManifestFromFiles(snapshot.files, {
+        name: project.name,
+        services: project.services,
+      }).manifest.spec.policies,
+    );
+    await this.claimQuota({
+      projectId: input.projectId,
+      operation: "deployment",
+      idempotencyKey: input.idempotencyKey,
+      metadata: { buildId: build.id, snapshotId: build.snapshotId },
+      policy: deploymentPolicy,
+    });
     let deployment = await this.cloud.requestDeployment({
       workspaceId: this.identity.workspaceId,
       projectId: input.projectId,
@@ -330,12 +655,11 @@ export class StudioControlPlane {
       idempotencyKey: deployment.idempotencyKey,
     });
     if (!dispatched && inline && deployment.state === "QUEUED") {
-      const snapshot = await this.getSnapshot(input.projectId, build.snapshotId);
       deployment = await createDeployment({
         build,
         snapshot,
         repository: this.cloud,
-        providers: [createStudioDeploymentProvider()],
+        providers: [createStudioDeploymentProvider(deploymentPolicy.runtime)],
         idempotencyKey: deployment.idempotencyKey,
       });
     }
@@ -420,6 +744,120 @@ export class StudioControlPlane {
       deploymentId,
       shareToken: object.shareToken,
     };
+  }
+
+  async getProjectCloudStatus(projectId: string) {
+    await this.getProject(projectId);
+    const [workspace, project, manifest, usage] = await Promise.all([
+      workspaceCloudStatus(this.identity.workspaceId),
+      projectSuspensionStatus(this.identity.workspaceId, projectId),
+      this.getApplicationManifest(projectId),
+      projectCloudUsage(this.identity.workspaceId, projectId),
+    ]);
+    return {
+      ...workspace,
+      policy: effectiveExecutionPolicy(
+        workspace.policy,
+        manifest.manifest.spec.policies,
+      ),
+      usage,
+      projectSuspended: project.suspended,
+      projectReason: project.reason,
+    };
+  }
+
+  async suspendProject(
+    projectId: string,
+    suspended: boolean,
+    reason?: string,
+  ) {
+    await this.getProject(projectId, "owner");
+    await setProjectSuspended({
+      workspaceId: this.identity.workspaceId,
+      projectId,
+      suspended,
+      principalId: this.identity.id,
+      reason,
+    });
+    if (suspended) {
+      const [builds, deployments] = await Promise.all([
+        this.cloud.listBuilds(this.identity.workspaceId, projectId, 100),
+        this.cloud.listDeployments(this.identity.workspaceId, projectId, 100),
+      ]);
+      await Promise.all(
+        builds
+          .filter((build) => build.state === "QUEUED" || build.state === "RUNNING")
+          .map((build) =>
+            this.cloud.transitionBuild(
+              this.identity.workspaceId,
+              build.id,
+              "CANCELLED",
+              "Project suspended by owner",
+            ),
+          ),
+      );
+      for (const deployment of deployments) {
+        if (
+          deployment.state !== "QUEUED" &&
+          deployment.state !== "BUILDING"
+        ) {
+          continue;
+        }
+        if (
+          deployment.state === "BUILDING" &&
+          deployment.providerDeploymentId &&
+          deploymentProviderConfigured()
+        ) {
+          await createStudioDeploymentProvider()
+            .cancel(deployment.providerDeploymentId)
+            .catch((error) => {
+              console.error(
+                JSON.stringify({
+                  level: "error",
+                  message: "Fabric provider cancellation failed",
+                  deploymentId: deployment.id,
+                  error: error instanceof Error ? error.message : String(error),
+                }),
+              );
+            });
+        }
+        await this.cloud.transitionDeployment(
+          this.identity.workspaceId,
+          deployment.id,
+          "CANCELLED",
+          { error: "Project suspended by owner" },
+        );
+      }
+    }
+    return this.getProjectCloudStatus(projectId);
+  }
+
+  private async claimQuota(input: {
+    projectId: string;
+    operation: "build" | "deployment" | "snapshot";
+    units?: number;
+    idempotencyKey: string;
+    metadata?: Record<string, unknown>;
+    policy?: ReturnType<typeof fabricExecutionPolicy>;
+  }) {
+    try {
+      return await claimWorkspaceQuota({
+        workspaceId: this.identity.workspaceId,
+        ...input,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (message.startsWith("quota_exceeded:")) {
+        throw new ControlPlaneError(429, "quota_exceeded", message.slice(16).trim());
+      }
+      if (
+        message.startsWith("workspace_suspended:") ||
+        message.startsWith("project_suspended:")
+      ) {
+        throw new ControlPlaneError(423, "project_suspended", message.split(":").slice(1).join(":").trim());
+      }
+      throw error;
+    }
   }
 }
 

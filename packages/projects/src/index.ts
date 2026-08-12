@@ -1,6 +1,13 @@
 import { createHash, randomUUID } from "node:crypto";
+import {
+  FABRIC_MANIFEST_PATH,
+  parseApplicationManifest,
+} from "./manifest.ts";
 
 export * from "./templates.ts";
+export * from "./manifest.ts";
+export * from "./schema.ts";
+export * from "./schema-execution.ts";
 
 /**
  * Provider-neutral source project model.
@@ -332,6 +339,13 @@ export function createSnapshot(input: {
   limits?: FileLimits;
 }): ProjectSnapshot {
   const files = normalizeSourceFiles(input.files, input.limits).map(snapshotFile);
+  const manifest = files.find((file) => file.path === FABRIC_MANIFEST_PATH);
+  if (manifest) {
+    if (manifest.encoding !== "utf8") {
+      throw new Error(`${FABRIC_MANIFEST_PATH} must be UTF-8 JSON`);
+    }
+    parseApplicationManifest(manifest.content);
+  }
   const treeDigest = sha256(
     JSON.stringify(files.map(({ path, digest, size, executable }) => ({ path, digest, size, executable }))),
   );

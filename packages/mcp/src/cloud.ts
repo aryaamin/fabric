@@ -1,11 +1,23 @@
-import type { Build, BuildEvent, BuildPlan, Deployment } from "@fabric/cloud";
+import type {
+  Build,
+  BuildEvent,
+  BuildPlan,
+  Deployment,
+  FabricExecutionPolicy,
+  WorkspaceUsage,
+} from "@fabric/cloud";
 import type {
   CloudProject,
   CreateProjectInput,
+  ApplicationManifest,
+  ManifestSource,
+  LogicalSchema,
   ProjectSnapshot,
+  SchemaMigrationPlan,
   SourceFile,
   SourceFileInput,
 } from "@fabric/projects";
+import { FABRIC_MANIFEST_JSON_SCHEMA } from "@fabric/projects";
 import type { Principal } from "@fabric/permissions";
 
 export interface CloudMcpProject {
@@ -34,6 +46,15 @@ export interface CloudMcpProjectLinks {
   appUrl: string;
 }
 
+export interface CloudMcpSafetyStatus {
+  policy: FabricExecutionPolicy;
+  usage: WorkspaceUsage;
+  suspended: boolean;
+  suspensionReason?: string;
+  projectSuspended: boolean;
+  projectReason?: string;
+}
+
 /** Authenticated control-plane port shared by remote MCP and REST adapters. */
 export interface CloudMcpApi {
   listProjects(principal: Principal): Promise<CloudMcpProject[]>;
@@ -44,6 +65,41 @@ export interface CloudMcpApi {
     projectId: string,
     files: SourceFileInput[],
   ): Promise<SourceFile[]>;
+  getApplicationManifest(
+    principal: Principal,
+    projectId: string,
+    snapshotId?: string,
+  ): Promise<ManifestSource & { snapshotId?: string }>;
+  writeApplicationManifest(
+    principal: Principal,
+    projectId: string,
+    manifest: ApplicationManifest,
+  ): Promise<ManifestSource>;
+  inspectApplicationSchema(
+    principal: Principal,
+    projectId: string,
+    snapshotId?: string,
+  ): Promise<{
+    projectId: string;
+    snapshotId?: string;
+    source: ManifestSource["source"];
+    schema: LogicalSchema;
+  }>;
+  previewSchemaMigration(
+    principal: Principal,
+    projectId: string,
+    baselineSnapshotId?: string,
+  ): Promise<{
+    projectId: string;
+    baselineSnapshotId?: string;
+    current: LogicalSchema;
+    desired: LogicalSchema;
+    plan: SchemaMigrationPlan;
+  }>;
+  listSchemaMigrations(
+    principal: Principal,
+    projectId: string,
+  ): Promise<{ reviews: unknown[]; runs: unknown[] }>;
   sealSnapshot(
     principal: Principal,
     projectId: string,
@@ -85,6 +141,16 @@ export interface CloudMcpApi {
     projectId: string,
     deploymentId: string,
   ): Promise<CloudMcpProjectLinks>;
+  getCloudStatus(
+    principal: Principal,
+    projectId: string,
+  ): Promise<CloudMcpSafetyStatus>;
+  setProjectSuspended(
+    principal: Principal,
+    projectId: string,
+    suspended: boolean,
+    reason?: string,
+  ): Promise<CloudMcpSafetyStatus>;
 }
 
 export interface CloudMcpServerOptions {
@@ -124,7 +190,7 @@ export class FabricCloudMcpServer {
           capabilities: { tools: { listChanged: false } },
           serverInfo: { name: this.name, version: this.version },
           instructions:
-            "Fabric is the user's cloud. Create a project, write all files, seal a snapshot, request a build, poll fabric_get_build until terminal, request a deployment, poll fabric_get_deployment until READY, then call fabric_publish_project and return its appUrl and editorUrl. Never ask the user for cloud-provider accounts, tokens, databases, or infrastructure setup.",
+            "Fabric is the user's cloud. Inspect fabric_get_application_manifest and fabric_inspect_schema before changing an existing project. After changing a logical data schema, call fabric_preview_schema_migration before sealing: never continue silently when the preview is destructive or requires approval. Use fabric_list_schema_migrations to report owner approvals, backups, validation failures, successful applies, and rollbacks; AI connections cannot approve, apply, or roll back migrations. For a new project, declare workloads, triggers, resources, data, secrets, permissions, and policies with fabric_put_application_manifest; then write code, seal a snapshot, build, deploy, publish, and return Fabric app/editor URLs. Never ask the user for cloud-provider accounts, tokens, databases, raw SQL, or infrastructure setup.",
         };
       case "ping":
       case "notifications/initialized":
@@ -165,6 +231,45 @@ export class FabricCloudMcpServer {
               this.principal,
               requiredString(args, "projectId"),
               requiredArray(args, "files") as SourceFileInput[],
+            ),
+          );
+        case "fabric_get_application_manifest":
+          return result(
+            await this.api.getApplicationManifest(
+              this.principal,
+              requiredString(args, "projectId"),
+              optionalString(args, "snapshotId"),
+            ),
+          );
+        case "fabric_put_application_manifest":
+          return result(
+            await this.api.writeApplicationManifest(
+              this.principal,
+              requiredString(args, "projectId"),
+              requiredObject(args, "manifest") as unknown as ApplicationManifest,
+            ),
+          );
+        case "fabric_inspect_schema":
+          return result(
+            await this.api.inspectApplicationSchema(
+              this.principal,
+              requiredString(args, "projectId"),
+              optionalString(args, "snapshotId"),
+            ),
+          );
+        case "fabric_preview_schema_migration":
+          return result(
+            await this.api.previewSchemaMigration(
+              this.principal,
+              requiredString(args, "projectId"),
+              optionalString(args, "baselineSnapshotId"),
+            ),
+          );
+        case "fabric_list_schema_migrations":
+          return result(
+            await this.api.listSchemaMigrations(
+              this.principal,
+              requiredString(args, "projectId"),
             ),
           );
         case "fabric_seal_snapshot":
@@ -237,6 +342,22 @@ export class FabricCloudMcpServer {
               requiredString(args, "deploymentId"),
             ),
           );
+        case "fabric_get_cloud_status":
+          return result(
+            await this.api.getCloudStatus(
+              this.principal,
+              requiredString(args, "projectId"),
+            ),
+          );
+        case "fabric_set_project_suspended":
+          return result(
+            await this.api.setProjectSuspended(
+              this.principal,
+              requiredString(args, "projectId"),
+              requiredBoolean(args, "suspended"),
+              optionalString(args, "reason"),
+            ),
+          );
         default:
           throw new Error(`unknown tool "${name}"`);
       }
@@ -287,6 +408,48 @@ const CLOUD_TOOLS: Record<string, unknown>[] = [
       },
     },
     ["projectId", "files"],
+  ),
+  tool(
+    "fabric_get_application_manifest",
+    "Read the canonical Fabric application model for an editable working tree or immutable snapshot. Always call this before changing an existing application.",
+    {
+      projectId: { type: "string" },
+      snapshotId: { type: "string" },
+    },
+    ["projectId"],
+  ),
+  tool(
+    "fabric_put_application_manifest",
+    "Validate and save the canonical application model. Declare cloud intent here before writing implementation code.",
+    {
+      projectId: { type: "string" },
+      manifest: FABRIC_MANIFEST_JSON_SCHEMA,
+    },
+    ["projectId", "manifest"],
+  ),
+  tool(
+    "fabric_inspect_schema",
+    "Inspect the canonical logical schema and deterministic version without database credentials or SQL access.",
+    {
+      projectId: { type: "string" },
+      snapshotId: { type: "string" },
+    },
+    ["projectId"],
+  ),
+  tool(
+    "fabric_preview_schema_migration",
+    "Compare the working logical schema with a sealed baseline. Returns safe, backfill-required, or destructive changes plus approval, backup, and validation requirements. Call before sealing schema changes.",
+    {
+      projectId: { type: "string" },
+      baselineSnapshotId: { type: "string" },
+    },
+    ["projectId"],
+  ),
+  tool(
+    "fabric_list_schema_migrations",
+    "List schema approvals, backup-backed migration runs, validation failures, successful applies, and rollbacks. This tool is read-only.",
+    { projectId: { type: "string" } },
+    ["projectId"],
   ),
   tool(
     "fabric_seal_snapshot",
@@ -366,6 +529,24 @@ const CLOUD_TOOLS: Record<string, unknown>[] = [
     },
     ["projectId", "deploymentId"],
   ),
+  tool(
+    "fabric_get_cloud_status",
+    "Inspect Fabric-enforced runtime limits, build/deployment quotas, usage, and suspension state.",
+    {
+      projectId: { type: "string" },
+    },
+    ["projectId"],
+  ),
+  tool(
+    "fabric_set_project_suspended",
+    "Owner-only emergency switch. Suspend to block application traffic, builds, and deployments; resume to allow them again. Only call when the user explicitly asks.",
+    {
+      projectId: { type: "string" },
+      suspended: { type: "boolean" },
+      reason: { type: "string", maxLength: 500 },
+    },
+    ["projectId", "suspended"],
+  ),
 ];
 
 function tool(
@@ -416,12 +597,29 @@ function requiredArray(args: Record<string, unknown>, key: string): unknown[] {
   return value;
 }
 
+function requiredObject(
+  args: Record<string, unknown>,
+  key: string,
+): Record<string, unknown> {
+  const value = args[key];
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${key} must be an object`);
+  }
+  return value as Record<string, unknown>;
+}
+
 function optionalNumber(args: Record<string, unknown>, key: string): number | undefined {
   const value = args[key];
   if (value === undefined) return undefined;
   if (typeof value !== "number" || !Number.isSafeInteger(value)) {
     throw new Error(`${key} must be an integer`);
   }
+  return value;
+}
+
+function requiredBoolean(args: Record<string, unknown>, key: string): boolean {
+  const value = args[key];
+  if (typeof value !== "boolean") throw new Error(`${key} must be a boolean`);
   return value;
 }
 

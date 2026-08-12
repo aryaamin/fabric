@@ -36,6 +36,8 @@ export async function executeBuild(input: {
         await repository.appendBuildEvent(build.workspaceId, build.id, event);
       },
     });
+    const current = await repository.getBuild(build.workspaceId, build.id);
+    if (current?.state === "CANCELLED") return current;
     if (execution.exitCode !== 0) {
       running = await repository.transitionBuild(
         build.workspaceId,
@@ -53,6 +55,8 @@ export async function executeBuild(input: {
       stream: "stderr",
       message,
     });
+    const current = await repository.getBuild(build.workspaceId, build.id);
+    if (current?.state === "CANCELLED") return current;
     return repository.transitionBuild(build.workspaceId, build.id, "FAILED", message);
   }
 }

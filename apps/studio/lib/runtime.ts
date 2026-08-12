@@ -15,7 +15,6 @@ import {
 } from "@fabric/versioning";
 import { getDatabaseExecutor, hasDurableDatabase } from "./database";
 import { hasDurableQueue, publishFabricEvent } from "./queue";
-import { SEED_DOCS, SEED_ROWS } from "./seed-apps";
 
 /**
  * Server-side Runtime singleton for the studio.
@@ -183,30 +182,6 @@ async function seed(workspaceId: string, ownerId: string): Promise<void> {
       author: version.author,
       message: version.message,
     });
-  }
-  for (const doc of SEED_DOCS) {
-    if (!rt.installed(doc.id)) {
-      const installed = rt.install(doc, {
-        workspaceId,
-        instanceId: STUDIO_INSTANCE_ID,
-        author: ownerId,
-        message: `created ${doc.name}`,
-      });
-      await persistVersion(workspaceId, {
-        appId: doc.id,
-        doc,
-        author: ownerId,
-        message: `created ${doc.name}`,
-      });
-    }
-  }
-  for (const row of hasDurableDatabase() ? [] : SEED_ROWS) {
-    try {
-      await rt.invokeAction(row.appId, row.action, row.args, owner);
-    } catch {
-      // Seeding is best-effort: a demo row must never keep the studio from
-      // booting. A failure here shows up as an empty table, not a 500.
-    }
   }
 }
 

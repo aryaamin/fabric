@@ -7,8 +7,8 @@ import { TooltipProvider } from "../components/ui/AiTooltip";
 import "./globals.css";
 
 export const metadata = {
-  title: "Fabric Studio",
-  description: "The agent-native cloud control plane for small software.",
+  title: "Fabric",
+  description: "Projects that people and AI can build, run, and share.",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
@@ -18,7 +18,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     children
   );
   return (
-    <html lang="en" className={cn("dark", GeistSans.variable, GeistMono.variable, "font-sans")}>
+    <html lang="en" className={cn(GeistSans.variable, GeistMono.variable, "font-sans")}>
       <body className="min-h-screen antialiased">
         <TooltipProvider>{content}</TooltipProvider>
       </body>

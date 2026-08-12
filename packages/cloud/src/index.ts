@@ -434,5 +434,6 @@ function clone<T>(value: T): T {
 }
 
 export * from "./detectors.ts";
+export * from "./policy.ts";
 export * from "./pipeline.ts";
 export * from "./repository.ts";

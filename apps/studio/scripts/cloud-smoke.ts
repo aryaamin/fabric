@@ -1,10 +1,7 @@
-import { execFile } from "node:child_process";
 import { setTimeout as delay } from "node:timers/promises";
-import { promisify } from "node:util";
 import type { Build, BuildEvent, Deployment } from "@fabric/cloud";
 import type { CloudProject, ProjectSnapshot } from "@fabric/projects";
 
-const execFileAsync = promisify(execFile);
 const baseUrl = (process.env.FABRIC_BASE_URL ?? "http://localhost:3210").replace(/\/$/, "");
 const runId = Date.now().toString(36);
 
@@ -99,22 +96,20 @@ if (!wrapper.ok) {
 const wrapperHtml = await wrapper.text();
 const upstreamUrl = wrapperHtml.match(/<iframe[^>]+src="([^"]+)"/)?.[1];
 if (!upstreamUrl) throw new Error("Fabric sharing page did not contain the application");
-const deployed = await fetch(upstreamUrl, { redirect: "follow" });
+const runtimeUrl = new URL(upstreamUrl, baseUrl);
+if (!runtimeUrl.pathname.startsWith(`/api/runtime/${project.id}/`)) {
+  throw new Error("Fabric sharing page bypassed the managed runtime gateway");
+}
+let deployed = await fetch(runtimeUrl, { redirect: "follow" });
 if (!deployed.ok) {
   throw new Error(`deployed URL returned HTTP ${deployed.status}`);
 }
 let html = await deployed.text();
 const marker = `Fabric smoke ${runId}`;
 for (let attempt = 0; attempt < 5 && !html.includes(marker); attempt += 1) {
-  try {
-    const bypassed = await execFileAsync("vercel", ["curl", deployment.immutableUrl], {
-      maxBuffer: 2 * 1024 * 1024,
-    });
-    html = bypassed.stdout;
-  } catch {
-    // The final assertion below reports the original verification failure.
-  }
-  if (!html.includes(marker)) await delay(2_000);
+  await delay(2_000);
+  deployed = await fetch(runtimeUrl, { redirect: "follow" });
+  html = deployed.ok ? await deployed.text() : "";
 }
 if (!html.includes(marker)) {
   throw new Error("deployed response does not contain the project marker");

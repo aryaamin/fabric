@@ -64,80 +64,11 @@ export function personFor(id: string): Person {
   );
 }
 
-interface SeedObject {
-  appId: string;
-  name: string;
-  icon: string;
-  /** minutes ago, so "last edited" reads plausibly on first load. */
-  editedMinutesAgo: number;
-  grants?: { principalId: string; role: ShareRole }[];
-  linkRole?: ShareRole;
-  isPublic?: boolean;
-}
-
-const SEED: SeedObject[] = [
-  {
-    appId: "expense-tracker",
-    name: "Expense Tracker",
-    icon: "🧾",
-    editedMinutesAgo: 3,
-    grants: [
-      { principalId: "u_dana", role: "editor" },
-      { principalId: "u_sam", role: "viewer" },
-      { principalId: "u_kai", role: "viewer" },
-    ],
-    linkRole: "viewer",
-  },
-  {
-    appId: "accounting",
-    name: "Accounting",
-    icon: "📒",
-    editedMinutesAgo: 26,
-    grants: [{ principalId: "u_mira", role: "editor" }],
-  },
-  {
-    appId: "revenue-dashboard",
-    name: "Revenue Dashboard",
-    icon: "📊",
-    editedMinutesAgo: 184,
-    grants: [
-      { principalId: "u_sam", role: "editor" },
-      { principalId: "u_mira", role: "viewer" },
-    ],
-    isPublic: true,
-  },
-  {
-    appId: "leave-requests",
-    name: "Leave Requests",
-    icon: "🏖",
-    editedMinutesAgo: 1445,
-    grants: [{ principalId: "u_dana", role: "viewer" }],
-  },
-];
-
 export function getWorkspace(workspaceId = WORKSPACE_ID, ownerId = CURRENT_USER): Workspace {
   globalThis.__fabricWorkspaces ??= new Map();
   let workspace = globalThis.__fabricWorkspaces.get(workspaceId);
   if (!workspace) {
     const ws = createWorkspace(workspaceId, workspaceId === WORKSPACE_ID ? "Acme Inc" : "My Workspace");
-    for (const s of SEED) {
-      const obj = createObject(ws, {
-        kind: "app",
-        name: s.name,
-        ownerId,
-        slug: s.appId,
-        appId: s.appId,
-        icon: s.icon,
-      });
-      obj.slug = s.appId;
-      obj.updatedAt = new Date(Date.now() - s.editedMinutesAgo * 60_000).toISOString();
-      for (const g of s.grants ?? []) share(obj, g.principalId, g.role);
-      if (s.linkRole) createShareLink("", ws, obj, s.linkRole);
-      if (s.isPublic) setPublic(obj, true);
-      // `share`/`createShareLink` bump updatedAt; restore the seeded time so
-      // "last edited" reflects the app, not the seeding order.
-      obj.updatedAt = new Date(Date.now() - s.editedMinutesAgo * 60_000).toISOString();
-    }
     globalThis.__fabricWorkspaces.set(workspaceId, ws);
     workspace = ws;
   }
@@ -191,32 +122,6 @@ export async function loadWorkspace(
       workspaceId,
       workspaceId.startsWith("org_") ? "Team Workspace" : "My Workspace",
     ));
-  for (const seed of SEED) {
-    if ([...workspace.objects.values()].some((object) => object.appId === seed.appId)) {
-      continue;
-    }
-    let object: WorkspaceObject;
-    try {
-      object = await repository.createObject(workspaceId, {
-        kind: "app",
-        name: seed.name,
-        ownerId,
-        slug: seed.appId,
-        appId: seed.appId,
-        icon: seed.icon,
-      });
-    } catch (error) {
-      const raced = await repository.findBySlug(workspaceId, seed.appId);
-      if (!raced || raced.appId !== seed.appId) throw error;
-      continue;
-    }
-    object.slug = seed.appId;
-    for (const grant of seed.grants ?? []) share(object, grant.principalId, grant.role);
-    if (seed.linkRole) createShareLink("", workspace, object, seed.linkRole);
-    if (seed.isPublic) setPublic(object, true);
-    await repository.saveObject(workspaceId, object);
-    await grantAppRole(workspaceId, seed.appId, ownerId, "owner");
-  }
   const loaded = (await repository.get(workspaceId)) ?? workspace;
   await ensureOwnerAppRoles(workspaceId, loaded);
   return loaded;

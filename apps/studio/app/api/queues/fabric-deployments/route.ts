@@ -1,5 +1,6 @@
 import { handleCallback } from "@vercel/queue";
-import { createDeployment } from "@fabric/cloud";
+import { createDeployment, effectiveExecutionPolicy } from "@fabric/cloud";
+import { applicationManifestFromFiles } from "@fabric/projects";
 import {
   getCloudRepository,
   getProjectRepository,
@@ -8,6 +9,11 @@ import {
   createStudioDeploymentProvider,
   deploymentProviderConfigured,
 } from "../../../../lib/cloud-providers";
+import {
+  fabricExecutionPolicy,
+  projectSuspensionStatus,
+  workspaceCloudStatus,
+} from "../../../../lib/cloud-policy";
 import type { CloudDeploymentMessage } from "../../../../lib/queue";
 
 export const POST = handleCallback<CloudDeploymentMessage>(
@@ -20,6 +26,19 @@ export const POST = handleCallback<CloudDeploymentMessage>(
     );
     if (!deployment) throw new Error(`deployment ${message.deploymentId} not found`);
     if (deployment.state !== "QUEUED") return;
+    const [workspace, project] = await Promise.all([
+      workspaceCloudStatus(message.workspaceId),
+      projectSuspensionStatus(message.workspaceId, message.projectId),
+    ]);
+    if (workspace.suspended || project.suspended) {
+      await cloud.transitionDeployment(
+        message.workspaceId,
+        deployment.id,
+        "CANCELLED",
+        { error: "Project is suspended" },
+      );
+      return;
+    }
     const build = await cloud.getBuild(message.workspaceId, message.buildId);
     if (!build) throw new Error(`build ${message.buildId} not found`);
     const snapshot = await projects.getSnapshot(
@@ -28,13 +47,22 @@ export const POST = handleCallback<CloudDeploymentMessage>(
       message.snapshotId,
     );
     if (!snapshot) throw new Error(`snapshot ${message.snapshotId} not found`);
+    const cloudProject = await projects.get(message.workspaceId, message.projectId);
+    if (!cloudProject) throw new Error(`project ${message.projectId} not found`);
+    const policy = effectiveExecutionPolicy(
+      fabricExecutionPolicy(),
+      applicationManifestFromFiles(snapshot.files, {
+        name: cloudProject.name,
+        services: cloudProject.services,
+      }).manifest.spec.policies,
+    );
 
     if (!deploymentProviderConfigured()) {
       await cloud.transitionDeployment(
         message.workspaceId,
         message.deploymentId,
         "ERROR",
-        { error: "Vercel deployment adapter is not configured" },
+        { error: "Fabric deployment service is not configured" },
       );
       return;
     }
@@ -43,7 +71,7 @@ export const POST = handleCallback<CloudDeploymentMessage>(
       snapshot,
       repository: cloud,
       providers: [
-        createStudioDeploymentProvider(),
+        createStudioDeploymentProvider(policy.runtime),
       ],
       idempotencyKey: message.idempotencyKey,
     });

@@ -37,9 +37,9 @@ export default async function SharedApplicationPage({
       </header>
       <iframe
         title={project.name}
-        src={deployment.immutableUrl}
+            src={`/api/runtime/${encodeURIComponent(projectId)}/${encodeURIComponent(token!)}/`}
         className="min-h-0 flex-1 border-0 bg-white"
-        allow="clipboard-read; clipboard-write"
+            sandbox="allow-downloads allow-forms allow-modals allow-popups allow-scripts"
       />
     </div>
   );

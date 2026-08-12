@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { ChevronRight, CloudCog, Plus, Server } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
 import type { CloudProject } from "@fabric/projects";
@@ -56,102 +57,153 @@ export function CloudProjectList({
 
   return (
     <div className="space-y-5">
-      <div className="flex flex-wrap items-center gap-2 rounded-lg border border-line bg-panel px-4 py-3">
-        <span className="text-[12px] font-medium text-ink-2">Cloud readiness</span>
-        <Badge tone={readiness.buildReady ? "success" : "danger"} dot>
-          Builds {readiness.buildReady ? "ready" : "blocked"}
-        </Badge>
-        <Badge tone={readiness.deploymentReady ? "success" : "warning"} dot>
-          Deployments {readiness.deploymentReady ? "ready" : "need setup"}
-        </Badge>
-        <Badge tone="neutral" mono>
-          {readiness.mode}
-        </Badge>
-        {readiness.missing.length > 0 ? (
-          <span className="ml-auto text-[11.5px] text-ink-3">
-            Missing: {readiness.missing.join(", ")}
+      {!readiness.buildReady || !readiness.deploymentReady ? (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-warn/20 bg-warn-dim/35 px-4 py-3">
+          <CloudCog className="size-4 text-warn" />
+          <span className="text-[11.5px] text-ink-2">
+            Some project actions are unavailable.
           </span>
-        ) : null}
-      </div>
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
-      <section>
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-[13px] font-medium text-ink-2">Cloud projects</h2>
-          <span className="font-mono text-[11.5px] text-ink-3">
-            {initialProjects.length} total
+          <span className="ml-auto font-mono text-[10px] text-warn">
+            {readiness.missing.join(" · ")}
           </span>
         </div>
-        <div className="grid gap-3 sm:grid-cols-2">
-          {initialProjects.map(({ project, role }) => (
-            <Link
-              key={project.id}
-              href={`/projects/${project.id}`}
-              className="group rounded-lg border border-line bg-panel p-4 transition hover:-translate-y-px hover:border-accent/40 hover:bg-raised"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <h3 className="truncate text-[14px] font-medium">{project.name}</h3>
-                  <p className="mt-1 truncate font-mono text-[11px] text-ink-3">
-                    {project.id}
-                  </p>
-                </div>
-                <Badge tone={project.headSnapshotId ? "success" : "neutral"} dot>
-                  {project.headSnapshotId ? "snapshotted" : "draft"}
-                </Badge>
-              </div>
-              <div className="mt-5 flex items-center justify-between border-t border-line-soft pt-3 text-[11.5px] text-ink-3">
-                <span>{project.services.length} service</span>
-                <span className="capitalize">{role}</span>
-              </div>
-            </Link>
-          ))}
-          {initialProjects.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-line px-5 py-12 text-center text-[13px] text-ink-3 sm:col-span-2">
-              No source projects yet. Create one to give any AI a cloud workspace.
-            </div>
-          ) : null}
-        </div>
-      </section>
+      ) : null}
 
-      <Card className="h-fit">
-        <CardHeader
-          title="New source project"
-          subtitle="Fabric manages files, immutable snapshots, builds, and URLs."
-        />
-        <CardBody>
-          <form onSubmit={createProject} className="space-y-3">
-            <div className="space-y-1.5">
-              <Label htmlFor="project-name">Project name</Label>
-              <Input
-                id="project-name"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                placeholder="Customer portal"
-                autoComplete="off"
-              />
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_350px]">
+        <section className="overflow-hidden rounded-lg border border-line bg-panel">
+          <div className="flex h-12 items-center border-b border-line px-4">
+            <div>
+              <h2 className="text-[12.5px] font-semibold">Workspace projects</h2>
+              <p className="text-[10.5px] text-ink-3">
+                Real applications created here or through a connected AI
+              </p>
             </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="project-template">Starter</Label>
-              <Select
-                id="project-template"
-                value={template}
-                onChange={(event) => setTemplate(event.target.value as ProjectTemplate)}
+            <span className="ml-auto font-mono text-[10.5px] text-ink-3">
+              {initialProjects.length} total
+            </span>
+          </div>
+          <div className="grid grid-cols-[minmax(0,1fr)_110px_100px_92px_28px] gap-3 border-b border-line-soft bg-base/45 px-4 py-2 font-mono text-[9px] uppercase tracking-[0.08em] text-ink-3 max-sm:hidden">
+            <span>Application</span>
+            <span>Runtime</span>
+            <span>Status</span>
+            <span>Updated</span>
+            <span />
+          </div>
+          <div className="divide-y divide-line-soft">
+            {initialProjects.map(({ project, role }) => (
+              <Link
+                key={project.id}
+                href={`/projects/${project.id}`}
+                className="group grid min-h-16 grid-cols-[minmax(0,1fr)_110px_100px_92px_28px] items-center gap-3 px-4 transition-colors hover:bg-hover max-sm:grid-cols-[minmax(0,1fr)_28px]"
               >
-                <option value="vite">Vite web app</option>
-                <option value="nextjs">Next.js app</option>
-                <option value="python">Python API</option>
-                <option value="go">Go service</option>
-                <option value="empty">Empty project</option>
-              </Select>
-            </div>
-            {error ? <p className="text-[12px] text-bad">{error}</p> : null}
-            <Button type="submit" variant="primary" loading={creating} className="w-full justify-center">
-              Create project
-            </Button>
-          </form>
-        </CardBody>
-      </Card>
+                <div className="flex min-w-0 items-center gap-3">
+                  <span className="flex size-8 shrink-0 items-center justify-center rounded-md border border-line bg-raised text-accent-hi">
+                    <Server className="size-3.5" />
+                  </span>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <h3 className="truncate text-[12.5px] font-medium">
+                        {project.name}
+                      </h3>
+                      <span className="text-[9.5px] capitalize text-ink-3">{role}</span>
+                    </div>
+                    <p className="mt-0.5 truncate font-mono text-[9.5px] text-ink-3">
+                      {project.id}
+                    </p>
+                  </div>
+                </div>
+                <span className="font-mono text-[10.5px] text-ink-2 max-sm:hidden">
+                  {project.services[0]?.runtime ?? "auto"}
+                </span>
+                <span className="max-sm:hidden">
+                  <Badge
+                    tone={
+                      project.activeDeploymentId
+                        ? "success"
+                        : project.headSnapshotId
+                          ? "warning"
+                          : "neutral"
+                    }
+                    dot
+                  >
+                    {project.activeDeploymentId
+                      ? "live"
+                      : project.headSnapshotId
+                        ? "staged"
+                        : "draft"}
+                  </Badge>
+                </span>
+                <span className="font-mono text-[9.5px] text-ink-3 max-sm:hidden">
+                  {shortDate(project.updatedAt)}
+                </span>
+                <ChevronRight className="size-3.5 text-ink-3 transition-transform group-hover:translate-x-0.5 group-hover:text-ink" />
+              </Link>
+            ))}
+            {initialProjects.length === 0 ? (
+              <div className="px-5 py-16 text-center">
+                <Server className="mx-auto size-6 text-ink-3" />
+                <p className="mt-3 text-[12.5px] font-medium">
+                  No projects yet
+                </p>
+                <p className="mt-1 text-[11px] text-ink-3">
+                  Create one here or connect an AI to Fabric.
+                </p>
+              </div>
+            ) : null}
+          </div>
+        </section>
+
+        <Card className="h-fit overflow-hidden">
+          <CardHeader
+            title="New project"
+            subtitle="Start here or ask a connected AI."
+          />
+          <CardBody>
+            <form onSubmit={createProject} className="space-y-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="project-name">Application name</Label>
+                <Input
+                  id="project-name"
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  placeholder="Email categorizer"
+                  autoComplete="off"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="project-template">Starting runtime</Label>
+                <Select
+                  id="project-template"
+                  value={template}
+                  onChange={(event) =>
+                    setTemplate(event.target.value as ProjectTemplate)
+                  }
+                >
+                  <option value="vite">Vite web application</option>
+                  <option value="nextjs">Next.js full-stack</option>
+                  <option value="python">Python service</option>
+                  <option value="go">Go service</option>
+                  <option value="empty">Agent-defined</option>
+                </Select>
+              </div>
+              {error ? <p className="text-[12px] text-bad">{error}</p> : null}
+              <Button
+                type="submit"
+                variant="primary"
+                loading={creating}
+                className="w-full justify-center"
+              >
+                <Plus className="size-3.5" />
+                Create project
+              </Button>
+            </form>
+          </CardBody>
+        </Card>
       </div>
     </div>
   );
+}
+
+function shortDate(value: string): string {
+  return value.slice(0, 10);
 }

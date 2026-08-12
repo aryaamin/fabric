@@ -18,20 +18,36 @@ let client: NeonQueryFunction<false, false> | undefined;
  * before Marketplace environment variables have been provisioned.
  */
 export function getDatabaseExecutor(): DatabaseExecutor {
-  const connectionString = process.env.DATABASE_URL;
-  if (!connectionString) {
-    throw new Error("DATABASE_URL is required for durable Fabric storage");
-  }
-  client ??= neon(connectionString);
+  const sql = databaseClient();
   return (async <T extends Record<string, unknown>>(
     text: string,
     params: readonly unknown[] = [],
   ): Promise<T[]> => {
-    const rows = await client!.query(text, [...params]);
+    const rows = await sql.query(text, [...params]);
     return rows as T[];
   }) as DatabaseExecutor;
 }
 
+export async function runDatabaseTransaction(
+  statements: { text: string; params?: readonly unknown[] }[],
+): Promise<void> {
+  if (statements.length === 0) return;
+  const sql = databaseClient();
+  await sql.transaction(
+    statements.map((statement) =>
+      sql.query(statement.text, [...(statement.params ?? [])]),
+    ),
+  );
+}
+
 export function hasDurableDatabase(): boolean {
   return Boolean(process.env.DATABASE_URL);
+}
+
+function databaseClient(): NeonQueryFunction<false, false> {
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) {
+    throw new Error("DATABASE_URL is required for durable Fabric storage");
+  }
+  return (client ??= neon(connectionString));
 }

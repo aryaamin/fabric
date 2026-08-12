@@ -16,33 +16,33 @@
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", monospace;
 
-  /* Surfaces, darkest → lightest. */
-  --color-base: #08080a;
-  --color-panel: #0c0c0f;
-  --color-raised: #121216;
-  --color-hover: #18181d;
+  /* Surfaces, lightest → darkest. */
+  --color-base: #ffffff;
+  --color-panel: #f9f9fb;
+  --color-raised: #f3f3f6;
+  --color-hover: #ebebef;
 
   /* Lines. */
-  --color-line: #23232b;
-  --color-line-soft: #17171c;
+  --color-line: #e4e4e9;
+  --color-line-soft: #f0f0f4;
 
   /* Ink. */
-  --color-ink: #f2f2f5;
-  --color-ink-2: #a3a3ae;
-  --color-ink-3: #6c6c78;
+  --color-ink: #111113;
+  --color-ink-2: #6c6c78;
+  --color-ink-3: #a3a3ae;
 
   /* The one accent. */
-  --color-accent: #7c5cff;
-  --color-accent-hi: #9c85ff;
-  --color-accent-dim: #191333;
+  --color-accent: #6b4cff;
+  --color-accent-hi: #5533ff;
+  --color-accent-dim: #f3f0ff;
 
   /* Semantic tones (badges, diffs, statuses) — used sparingly. */
-  --color-ok: #3ddc97;
-  --color-ok-dim: #0d2620;
-  --color-warn: #f5c451;
-  --color-warn-dim: #2a2110;
-  --color-bad: #ff6b6b;
-  --color-bad-dim: #2b1417;
+  --color-ok: #28a745;
+  --color-ok-dim: #e6f6e9;
+  --color-warn: #e0a800;
+  --color-warn-dim: #fdf6e3;
+  --color-bad: #dc3545;
+  --color-bad-dim: #fceced;
 
   --radius-xs: 4px;
   --radius-sm: 6px;
@@ -101,7 +101,7 @@
   }
 
   html {
-    color-scheme: dark;
+    color-scheme: light;
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
   }
@@ -134,13 +134,13 @@
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: #26262e;
+    background: #d4d4d8;
     border: 3px solid transparent;
     background-clip: content-box;
     border-radius: 999px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: #34343e;
+    background: #a1a1aa;
     background-clip: content-box;
   }
 
@@ -249,14 +249,14 @@
     position: absolute;
     inset: 0;
     transform: translateX(-100%);
-    background: linear-gradient(90deg, transparent, #1e1e25, transparent);
+    background: linear-gradient(90deg, transparent, #e4e4e9, transparent);
     animation: fb-shimmer 1.4s infinite;
   }
 
   .grid-bg {
     background-image:
-      linear-gradient(to right, #ffffff06 1px, transparent 1px),
-      linear-gradient(to bottom, #ffffff06 1px, transparent 1px);
+      linear-gradient(to right, #00000006 1px, transparent 1px),
+      linear-gradient(to bottom, #00000006 1px, transparent 1px);
     background-size: 44px 44px;
   }
 

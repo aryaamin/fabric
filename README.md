@@ -1,8 +1,9 @@
 # ▚ Fabric
 
-**The agent-native cloud control plane for small software.** Any AI can connect
-through MCP, edit provider-neutral source files, seal immutable snapshots, run
-isolated builds, deploy applications, inspect logs, and return shareable URLs.
+**A shared workspace for small software.** People and connected AIs work on the
+same real projects. Through MCP, an AI can edit provider-neutral source files,
+seal immutable snapshots, run isolated builds, deploy applications, inspect
+logs, and return shareable URLs.
 
 > Software should be as easy to create, edit, share, and compose as a Google
 > Doc. Today documents are first-class objects. Tomorrow, applications are too.
@@ -20,11 +21,13 @@ private implementation details controlled by the Fabric operator.
 ## The idea in one picture
 
 ```
-AI / Studio ──► REST or MCP ──► working files ──► immutable snapshot
-                                                     │
-                                      runtime detector + build plan
-                                                     │
-                                      isolated build ──► deployment URL
+AI / Studio ──► REST or MCP ──► fabric.json + working files
+                                        │
+                              immutable snapshot
+                                        │
+                         workload-aware build plans
+                                        │
+                         isolated build ──► Fabric URL
 ```
 
 Agents operate on Fabric concepts rather than VMs, containers, IAM, build
@@ -47,6 +50,35 @@ After connecting, ask:
 ChatGPT can create files, seal a snapshot, poll the isolated build, deploy,
 publish, and return Fabric-branded URLs. It never receives provider tokens,
 database credentials, or raw provider deployment metadata.
+
+## The application manifest
+
+Every source project has a validated `fabric.json` document. It is the
+provider-neutral description of the whole application: web apps and headless
+workers, HTTP/schedule/event/queue triggers, managed resources, logical data
+models and relationships, secret requirements, permissions, and safety
+policies.
+
+AI clients inspect this manifest before changing an existing application and
+update it before implementation code. Fabric validates all references when a
+snapshot is sealed, derives build workloads from it, and applies application
+limits only when they are stricter than the operator-owned platform limits.
+Older projects without `fabric.json` receive an inferred manifest until their
+next AI edit.
+
+Fabric also derives a deterministic version for every logical data schema.
+Before sealing a schema change, Studio and MCP preview the migration as safe,
+backfill-required, or destructive. Destructive changes are blocked until a
+workspace owner reviews the exact plan; the approval is bound to that plan and
+cannot be reused after the schema changes. AI clients receive logical diffs and
+validation requirements, never database credentials or unrestricted SQL.
+After sealing, an owner can apply the migration in Studio. Fabric snapshots the
+logical records, runs declared-default backfills in isolation, validates types,
+required fields, enums, references, and unique indexes, then atomically commits
+the result. Failed validation leaves live records untouched. Successful runs
+retain a checksum-verified backup for owner-initiated rollback, and deployment
+is blocked until the sealed migration succeeds. AI clients can inspect this
+ledger through MCP but cannot approve, apply, or roll back a migration.
 
 ## Quickstart (no install, no network)
 
@@ -74,7 +106,7 @@ npm run link:local
 npm run studio
 ```
 
-## Run the Agent Cloud end to end
+## Run Fabric end to end
 
 Install the Vercel CLI (`npm i -g vercel`), link the Studio to a Vercel project,
 and pull its environment. For local execution, copy

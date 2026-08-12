@@ -5,6 +5,11 @@ import {
   getProjectRepository,
 } from "../../../../lib/control-plane";
 import { createStudioSandboxExecutor } from "../../../../lib/cloud-providers";
+import {
+  fabricExecutionPolicy,
+  projectSuspensionStatus,
+  workspaceCloudStatus,
+} from "../../../../lib/cloud-policy";
 import type { CloudBuildMessage } from "../../../../lib/queue";
 
 export const POST = handleCallback<CloudBuildMessage>(
@@ -17,6 +22,19 @@ export const POST = handleCallback<CloudBuildMessage>(
       throw new Error("queued build identity mismatch");
     }
     if (build.state !== "QUEUED") return;
+    const [workspace, project] = await Promise.all([
+      workspaceCloudStatus(message.workspaceId),
+      projectSuspensionStatus(message.workspaceId, message.projectId),
+    ]);
+    if (workspace.suspended || project.suspended) {
+      await cloud.transitionBuild(
+        message.workspaceId,
+        build.id,
+        "CANCELLED",
+        "Project is suspended",
+      );
+      return;
+    }
     const snapshot = await projects.getSnapshot(
       message.workspaceId,
       message.projectId,
@@ -29,12 +47,7 @@ export const POST = handleCallback<CloudBuildMessage>(
       snapshot,
       repository: cloud,
       executor: createStudioSandboxExecutor(),
-      limits: {
-        timeoutMs: 290_000,
-        memoryMb: 2_048,
-        cpu: 1,
-        network: "restricted",
-      },
+      limits: fabricExecutionPolicy().build,
     });
     console.info(
       JSON.stringify({

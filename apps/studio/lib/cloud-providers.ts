@@ -2,8 +2,10 @@ import {
   createVercelDeploymentProvider,
   createVercelSandboxExecutor,
 } from "@fabric/integrations";
+import type { RuntimePolicy } from "@fabric/cloud";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { fabricExecutionPolicy } from "./cloud-policy";
 
 export function createStudioSandboxExecutor() {
   return createVercelSandboxExecutor({
@@ -22,7 +24,7 @@ export function createStudioSandboxExecutor() {
   });
 }
 
-export function createStudioDeploymentProvider() {
+export function createStudioDeploymentProvider(runtimePolicy?: RuntimePolicy) {
   const token = process.env.VERCEL_TOKEN;
   if (!token) throw new Error("VERCEL_TOKEN is required by the deployment adapter");
   const link = linkedVercelProject();
@@ -30,6 +32,7 @@ export function createStudioDeploymentProvider() {
     token,
     teamId: process.env.VERCEL_TEAM_ID ?? process.env.VERCEL_ORG_ID ?? link?.orgId,
     projectNamePrefix: process.env.VERCEL_PROJECT_PREFIX ?? "fabric",
+    runtimePolicy: runtimePolicy ?? fabricExecutionPolicy().runtime,
   });
 }
 

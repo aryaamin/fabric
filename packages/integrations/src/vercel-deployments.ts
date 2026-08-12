@@ -5,7 +5,9 @@ import type {
   DeploymentHandle,
   DeploymentProvider,
   DeploymentState,
+  RuntimePolicy,
 } from "@fabric/cloud";
+import { DEFAULT_EXECUTION_POLICY } from "@fabric/cloud";
 import type { ProjectSnapshot } from "@fabric/projects";
 
 type DeploymentsClient = Pick<
@@ -19,6 +21,7 @@ export interface VercelDeploymentProviderOptions {
   projectNamePrefix?: string;
   client?: DeploymentsClient;
   fetch?: typeof globalThis.fetch;
+  runtimePolicy?: RuntimePolicy;
 }
 
 export function createVercelDeploymentProvider(
@@ -49,6 +52,11 @@ export function createVercelDeploymentProvider(
         input.projectId,
         options.projectNamePrefix ?? "fabric",
       );
+      const functions = functionSettings(
+        input.snapshot,
+        input.plan,
+        options.runtimePolicy ?? DEFAULT_EXECUTION_POLICY.runtime,
+      );
       const response = await client.createDeployment({
         teamId,
         skipAutoDetectionConfirmation: "1",
@@ -61,6 +69,7 @@ export function createVercelDeploymentProvider(
             fabricSnapshotId: input.snapshot.id,
             fabricIdempotencyKey: input.idempotencyKey,
           },
+          ...(functions ? { functions } : {}),
           projectSettings: projectSettings(input.plan),
         },
       });
@@ -85,6 +94,60 @@ export function createVercelDeploymentProvider(
       await client.cancelDeployment({ id: providerDeploymentId, teamId });
     },
   };
+}
+
+function functionSettings(
+  snapshot: ProjectSnapshot,
+  plan: BuildPlan,
+  policy: RuntimePolicy,
+): Record<string, { maxDuration: number; maxConcurrency: number }> | undefined {
+  if (plan.output.kind !== "function") return undefined;
+  const paths = functionPaths(snapshot, plan);
+  if (paths.length === 0) return undefined;
+  const configuration = {
+    maxDuration: Math.max(1, Math.ceil(policy.maxDurationMs / 1_000)),
+    maxConcurrency: policy.maxConcurrency,
+  };
+  return Object.fromEntries(paths.map((path) => [path, configuration]));
+}
+
+function functionPaths(snapshot: ProjectSnapshot, plan: BuildPlan): string[] {
+  const prefix = plan.start?.cwd && plan.start.cwd !== "." ? `${plan.start.cwd}/` : "";
+  if (plan.framework === "next") {
+    const candidates = [
+      `${prefix}app/api/**/*`,
+      `${prefix}pages/api/**/*`,
+      `${prefix}src/app/api/**/*`,
+      `${prefix}src/pages/api/**/*`,
+    ];
+    return candidates.filter((pattern) =>
+      snapshot.files.some((file) =>
+        file.path.startsWith(pattern.replace("/**/*", "/")),
+      ),
+    );
+  }
+  if (plan.runtime === "python") {
+    const preferred =
+      plan.framework === "flask"
+        ? ["app.py", "main.py"]
+        : plan.framework === "django"
+          ? snapshot.files
+              .map((file) => file.path)
+              .filter((path) => path.endsWith("/wsgi.py"))
+          : ["main.py"];
+    return preferred
+      .map((path) => (path.startsWith(prefix) ? path : `${prefix}${path}`))
+      .filter((path) => snapshot.files.some((file) => file.path === path))
+      .slice(0, 1);
+  }
+  const startFile = plan.start?.args.find((argument) =>
+    /\.(?:[cm]?[jt]s|go)$/.test(argument),
+  );
+  if (startFile) {
+    const path = startFile.startsWith(prefix) ? startFile : `${prefix}${startFile}`;
+    if (snapshot.files.some((file) => file.path === path)) return [path];
+  }
+  return [];
 }
 
 async function uploadSnapshot(

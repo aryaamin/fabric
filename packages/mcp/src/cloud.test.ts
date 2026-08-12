@@ -22,9 +22,24 @@ test("cloud MCP requires a principal and exposes control-plane tools", async () 
     method: "tools/list",
   })) as { tools: { name: string; securitySchemes?: unknown[] }[] };
   assert(listed.tools.some((tool) => tool.name === "fabric_write_files"));
+  assert(
+    listed.tools.some((tool) => tool.name === "fabric_get_application_manifest"),
+  );
+  assert(
+    listed.tools.some((tool) => tool.name === "fabric_put_application_manifest"),
+  );
+  assert(listed.tools.some((tool) => tool.name === "fabric_inspect_schema"));
+  assert(
+    listed.tools.some((tool) => tool.name === "fabric_preview_schema_migration"),
+  );
+  assert(
+    listed.tools.some((tool) => tool.name === "fabric_list_schema_migrations"),
+  );
   assert(listed.tools.some((tool) => tool.name === "fabric_request_build"));
   assert(listed.tools.some((tool) => tool.name === "fabric_request_deployment"));
   assert(listed.tools.some((tool) => tool.name === "fabric_publish_project"));
+  assert(listed.tools.some((tool) => tool.name === "fabric_get_cloud_status"));
+  assert(listed.tools.some((tool) => tool.name === "fabric_set_project_suspended"));
   assert(listed.tools.every((tool) => (tool.securitySchemes?.length ?? 0) > 0));
 });
 
@@ -97,6 +112,21 @@ function fakeApi(): CloudMcpApi {
     async writeFiles() {
       return [];
     },
+    async getApplicationManifest() {
+      throw new Error("not used");
+    },
+    async writeApplicationManifest() {
+      throw new Error("not used");
+    },
+    async inspectApplicationSchema() {
+      throw new Error("not used");
+    },
+    async previewSchemaMigration() {
+      throw new Error("not used");
+    },
+    async listSchemaMigrations() {
+      return { reviews: [], runs: [] };
+    },
     async sealSnapshot() {
       throw new Error("not used");
     },
@@ -119,6 +149,12 @@ function fakeApi(): CloudMcpApi {
       throw new Error("not used");
     },
     async publishProject() {
+      throw new Error("not used");
+    },
+    async getCloudStatus() {
+      throw new Error("not used");
+    },
+    async setProjectSuspended() {
       throw new Error("not used");
     },
   };

@@ -195,3 +195,75 @@ test("Vercel provider refuses plaintext deployment environment values", async ()
     /encrypted project environment variables/,
   );
 });
+
+test("Vercel provider applies provider-native function safety limits", async () => {
+  let deploymentRequest: unknown;
+  const client = {
+    async uploadFile() {
+      return {};
+    },
+    async createDeployment(request: unknown) {
+      deploymentRequest = request;
+      return {
+        id: "dpl_safe",
+        readyState: "BUILDING",
+        url: "fabric-safe.vercel.app",
+      };
+    },
+    async getDeployment() {
+      return { id: "dpl_safe", readyState: "READY" };
+    },
+    async cancelDeployment() {
+      return {};
+    },
+  } as unknown as NonNullable<VercelDeploymentProviderOptions["client"]>;
+  const provider = createVercelDeploymentProvider({
+    client,
+    runtimePolicy: {
+      maxDurationMs: 5_000,
+      memoryMb: 512,
+      maxConcurrency: 3,
+      maxRequestsPerMinute: 60,
+      maxRequestBytes: 1_024,
+      maxResponseBytes: 2_048,
+    },
+  });
+  await provider.create({
+    projectId: "prj_flask",
+    snapshot: createSnapshot({
+      workspaceId: "ws",
+      projectId: "prj_flask",
+      files: [
+        { path: "app.py", content: "from flask import Flask\napp = Flask(__name__)\n" },
+        { path: "requirements.txt", content: "flask\n" },
+      ],
+    }),
+    plan: {
+      schemaVersion: 1,
+      service: "web",
+      runtime: "python",
+      framework: "flask",
+      start: { executable: "python", args: ["app.py"], cwd: "." },
+      output: { kind: "function" },
+      requirements: {
+        protocols: ["http"],
+        longLived: false,
+        background: false,
+      },
+    },
+    environment: {},
+    idempotencyKey: "safe-runtime",
+  });
+  assert.deepEqual(
+    (
+      deploymentRequest as {
+        requestBody: {
+          functions: Record<string, { maxDuration: number; maxConcurrency: number }>;
+        };
+      }
+    ).requestBody.functions,
+    {
+      "app.py": { maxDuration: 5, maxConcurrency: 3 },
+    },
+  );
+});

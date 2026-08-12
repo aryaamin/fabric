@@ -154,6 +154,26 @@ function mcpApi(
       requireScope(projectId, "files:write");
       return controlPlane.writeFiles(projectId, files);
     },
+    async getApplicationManifest(_principal, projectId, snapshotId) {
+      requireScope(projectId, "project:read");
+      return controlPlane.getApplicationManifest(projectId, snapshotId);
+    },
+    async writeApplicationManifest(_principal, projectId, manifest) {
+      requireScope(projectId, "files:write");
+      return controlPlane.writeApplicationManifest(projectId, manifest);
+    },
+    async inspectApplicationSchema(_principal, projectId, snapshotId) {
+      requireScope(projectId, "project:read");
+      return controlPlane.inspectApplicationSchema(projectId, snapshotId);
+    },
+    async previewSchemaMigration(_principal, projectId, baselineSnapshotId) {
+      requireScope(projectId, "project:read");
+      return controlPlane.previewSchemaMigration(projectId, baselineSnapshotId);
+    },
+    async listSchemaMigrations(_principal, projectId) {
+      requireScope(projectId, "project:read");
+      return controlPlane.listSchemaMigrations(projectId);
+    },
     async sealSnapshot(_principal, projectId, input) {
       requireScope(projectId, "snapshot:write");
       return controlPlane.sealSnapshot(projectId, input);
@@ -191,6 +211,14 @@ function mcpApi(
         editorUrl: `${origin}/projects/${projectId}`,
         appUrl: `${origin}/run/${projectId}?k=${encodeURIComponent(published.shareToken)}`,
       };
+    },
+    async getCloudStatus(_principal, projectId) {
+      requireScope(projectId, "project:read");
+      return controlPlane.getProjectCloudStatus(projectId);
+    },
+    async setProjectSuspended(_principal, projectId, suspended, reason) {
+      requireScope(projectId, "deployment:create");
+      return controlPlane.suspendProject(projectId, suspended, reason);
     },
   };
 }
