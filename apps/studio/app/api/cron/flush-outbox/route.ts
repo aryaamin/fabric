@@ -1,4 +1,8 @@
-import { flushEventOutbox } from "../../../../lib/queue";
+import {
+  flushCloudBuildOutbox,
+  flushCloudDeploymentOutbox,
+  flushEventOutbox,
+} from "../../../../lib/queue";
 
 export async function GET(request: Request) {
   if (
@@ -7,7 +11,12 @@ export async function GET(request: Request) {
   ) {
     return new Response("Unauthorized", { status: 401 });
   }
-  const delivered = await flushEventOutbox();
+  const [events, builds, deployments] = await Promise.all([
+    flushEventOutbox(),
+    flushCloudBuildOutbox(),
+    flushCloudDeploymentOutbox(),
+  ]);
+  const delivered = events + builds + deployments;
   console.info("[fabric-outbox] flush complete", { delivered });
-  return Response.json({ ok: true, delivered });
+  return Response.json({ ok: true, delivered, events, builds, deployments });
 }

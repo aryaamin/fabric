@@ -39,11 +39,13 @@ const MODES: { id: ShareMode; label: string; hint: string; tone: "neutral" | "ac
 export function ShareDialog({
   slug,
   name,
+  kind = "app",
   open,
   onClose,
 }: {
   slug: string;
   name: string;
+  kind?: "app" | "project";
   open: boolean;
   onClose: () => void;
 }) {
@@ -111,14 +113,19 @@ export function ShareDialog({
     }
   }
 
-  const shareable = state && state.mode !== "restricted";
+  const shareable = kind === "app" && state && state.mode !== "restricted";
+  const modes = kind === "project" ? MODES.filter((mode) => mode.id === "restricted") : MODES;
 
   return (
     <Dialog
       open={open}
       onClose={onClose}
       title={`Share “${name}”`}
-      subtitle="A link to software, that behaves like a link to a document."
+      subtitle={
+        kind === "project"
+          ? "Invite collaborators to edit or inspect this protected source project."
+          : "A link to software, that behaves like a link to a document."
+      }
       width="600px"
     >
       {!state ? (
@@ -162,7 +169,7 @@ export function ShareDialog({
           </div>
 
           <div className="flex flex-col gap-1.5">
-            {MODES.map((m) => {
+            {modes.map((m) => {
               const active = state.mode === m.id;
               return (
                 <button
@@ -209,11 +216,13 @@ export function ShareDialog({
             </div>
           ) : (
             <p className="mt-4 rounded-md border border-line bg-raised px-3 py-2.5 text-[12.5px] text-ink-3">
-              Turn on link sharing or publish to get a URL and an embed snippet.
+              {kind === "project"
+                ? "This project stays protected. Invite collaborators by email above."
+                : "Turn on link sharing or publish to get a URL and an embed snippet."}
             </p>
           )}
 
-          <div className="mt-5 border-t border-line-soft pt-4">
+          {kind === "app" ? <div className="mt-5 border-t border-line-soft pt-4">
             <div className="mb-2.5 text-[11.5px] font-medium uppercase tracking-[0.05em] text-ink-3">
               One link, three surfaces
             </div>
@@ -226,7 +235,7 @@ export function ShareDialog({
               The surface is chosen by the visitor&apos;s access, not by a different URL — the same routing decision the
               preview server makes.
             </p>
-          </div>
+          </div> : null}
         </>
       )}
     </Dialog>

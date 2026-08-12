@@ -1,0 +1,11 @@
+{
+  "name": "@fabric/cloud",
+  "version": "0.1.0",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@fabric/projects": "0.1.0"
+  }
+}

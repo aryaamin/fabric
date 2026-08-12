@@ -125,6 +125,7 @@ export function getWorkspace(workspaceId = WORKSPACE_ID, ownerId = CURRENT_USER)
         kind: "app",
         name: s.name,
         ownerId,
+        slug: s.appId,
         appId: s.appId,
         icon: s.icon,
       });
@@ -167,9 +168,14 @@ export function registerObject(
   workspaceId = WORKSPACE_ID,
   ownerId = CURRENT_USER,
 ): WorkspaceObject {
-  const obj = createObject(getWorkspace(workspaceId, ownerId), { kind: "app", name, ownerId, appId, icon });
-  obj.slug = appId;
-  return obj;
+  return createObject(getWorkspace(workspaceId, ownerId), {
+    kind: "app",
+    name,
+    ownerId,
+    slug: appId,
+    appId,
+    icon,
+  });
 }
 
 export async function loadWorkspace(
@@ -179,23 +185,31 @@ export async function loadWorkspace(
   if (!hasDurableDatabase()) return getWorkspace(workspaceId, ownerId);
   const repository = new PostgresWorkspaceRepository(getDatabaseExecutor());
   const existing = await repository.get(workspaceId);
-  if (existing) {
-    await ensureOwnerAppRoles(workspaceId, existing);
-    return existing;
-  }
-
-  const workspace = await repository.create(
-    workspaceId,
-    workspaceId.startsWith("org_") ? "Team Workspace" : "My Workspace",
-  );
+  const workspace =
+    existing ??
+    (await repository.create(
+      workspaceId,
+      workspaceId.startsWith("org_") ? "Team Workspace" : "My Workspace",
+    ));
   for (const seed of SEED) {
-    const object = await repository.createObject(workspaceId, {
-      kind: "app",
-      name: seed.name,
-      ownerId,
-      appId: seed.appId,
-      icon: seed.icon,
-    });
+    if ([...workspace.objects.values()].some((object) => object.appId === seed.appId)) {
+      continue;
+    }
+    let object: WorkspaceObject;
+    try {
+      object = await repository.createObject(workspaceId, {
+        kind: "app",
+        name: seed.name,
+        ownerId,
+        slug: seed.appId,
+        appId: seed.appId,
+        icon: seed.icon,
+      });
+    } catch (error) {
+      const raced = await repository.findBySlug(workspaceId, seed.appId);
+      if (!raced || raced.appId !== seed.appId) throw error;
+      continue;
+    }
     object.slug = seed.appId;
     for (const grant of seed.grants ?? []) share(object, grant.principalId, grant.role);
     if (seed.linkRole) createShareLink("", workspace, object, seed.linkRole);
@@ -203,7 +217,9 @@ export async function loadWorkspace(
     await repository.saveObject(workspaceId, object);
     await grantAppRole(workspaceId, seed.appId, ownerId, "owner");
   }
-  return (await repository.get(workspaceId)) ?? workspace;
+  const loaded = (await repository.get(workspaceId)) ?? workspace;
+  await ensureOwnerAppRoles(workspaceId, loaded);
+  return loaded;
 }
 
 export async function listWorkspaceObjects(
@@ -244,6 +260,7 @@ export async function createWorkspaceObject(
     kind: "app",
     name,
     ownerId,
+    slug: appId,
     appId,
     icon,
   });
@@ -251,6 +268,109 @@ export async function createWorkspaceObject(
   await repository.saveObject(workspaceId, object);
   await grantAppRole(workspaceId, appId, ownerId, "owner");
   return object;
+}
+
+/** Create a shareable workspace object for a provider-neutral source project. */
+export async function createCloudProjectObject(
+  workspaceId: string,
+  ownerId: string,
+  projectId: string,
+  name: string,
+  slug: string,
+  icon = "◫",
+): Promise<WorkspaceObject> {
+  if (!hasDurableDatabase()) {
+    const object = createObject(getWorkspace(workspaceId, ownerId), {
+      kind: "project",
+      name,
+      ownerId,
+      slug,
+      projectId,
+      icon,
+    });
+    object.slug = slug;
+    return object;
+  }
+  await loadWorkspace(workspaceId, ownerId);
+  const repository = new PostgresWorkspaceRepository(getDatabaseExecutor());
+  const object = await repository.createObject(workspaceId, {
+    kind: "project",
+    name,
+    ownerId,
+    slug,
+    projectId,
+    icon,
+  });
+  object.slug = slug;
+  await repository.saveObject(workspaceId, object);
+  return object;
+}
+
+export async function findWorkspaceProjectObject(
+  workspaceId: string,
+  projectId: string,
+  ownerId: string,
+): Promise<WorkspaceObject | undefined> {
+  return (await listWorkspaceObjects(workspaceId, ownerId)).find(
+    (object) => object.projectId === projectId,
+  );
+}
+
+export async function publishCloudProjectObject(
+  workspaceId: string,
+  ownerId: string,
+  projectId: string,
+): Promise<WorkspaceObject> {
+  const workspace = await loadWorkspace(workspaceId, ownerId);
+  const object = [...workspace.objects.values()].find(
+    (candidate) => candidate.projectId === projectId,
+  );
+  if (!object) throw new Error(`project ${projectId} not found`);
+  if (resolveAccess(object, { principalId: ownerId }) !== "owner") {
+    throw new Error("only project owners can publish applications");
+  }
+  setPublic(object, false);
+  createShareLink("", workspace, object, "viewer");
+  await saveWorkspaceObject(workspaceId, object);
+  return object;
+}
+
+export async function resolveSharedCloudProject(
+  projectId: string,
+  token: string,
+): Promise<{ workspaceId: string; object: WorkspaceObject } | undefined> {
+  if (!token) return undefined;
+  if (hasDurableDatabase()) {
+    const rows = await getDatabaseExecutor()<{
+      workspace_id: string;
+      slug: string;
+    }>(
+      `SELECT workspace_id, slug
+       FROM workspace_objects
+       WHERE project_id = $1 AND share_token = $2
+         AND (link_role IN ('viewer', 'editor') OR public = true)
+       LIMIT 1`,
+      [projectId, token],
+    );
+    const row = rows[0];
+    if (!row) return undefined;
+    const object = await new PostgresWorkspaceRepository(
+      getDatabaseExecutor(),
+    ).findBySlug(row.workspace_id, row.slug);
+    return object ? { workspaceId: row.workspace_id, object } : undefined;
+  }
+  for (const [workspaceId, workspace] of globalThis.__fabricWorkspaces ?? []) {
+    for (const object of workspace.objects.values()) {
+      if (
+        object.projectId === projectId &&
+        object.shareToken === token &&
+        (object.linkRole === "viewer" || object.linkRole === "editor" || object.public)
+      ) {
+        return { workspaceId, object };
+      }
+    }
+  }
+  return undefined;
 }
 
 export async function saveWorkspaceObject(

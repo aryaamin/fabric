@@ -28,12 +28,14 @@
       "@fabric/permissions": ["./packages/permissions/src/index.ts"],
       "@fabric/storage": ["./packages/storage/src/index.ts"],
       "@fabric/connections": ["./packages/connections/src/index.ts"],
-      "@fabric/workspace": ["./packages/workspace/src/index.ts"]
-      ,"@fabric/code-units": ["./packages/code-units/src/index.ts"]
-      ,"@fabric/host": ["./packages/host/src/index.ts"]
-      ,"@fabric/host/node": ["./packages/host/src/node.ts"]
-      ,"@fabric/mcp": ["./packages/mcp/src/index.ts"]
-      ,"@fabric/integrations": ["./packages/integrations/src/index.ts"]
+      "@fabric/workspace": ["./packages/workspace/src/index.ts"],
+      "@fabric/projects": ["./packages/projects/src/index.ts"],
+      "@fabric/cloud": ["./packages/cloud/src/index.ts"],
+      "@fabric/code-units": ["./packages/code-units/src/index.ts"],
+      "@fabric/host": ["./packages/host/src/index.ts"],
+      "@fabric/host/node": ["./packages/host/src/node.ts"],
+      "@fabric/mcp": ["./packages/mcp/src/index.ts"],
+      "@fabric/integrations": ["./packages/integrations/src/index.ts"]
     }
   }
 }

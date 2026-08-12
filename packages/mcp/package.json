@@ -6,8 +6,10 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
+    "@fabric/cloud": "0.1.0",
     "@fabric/host": "0.1.0",
     "@fabric/ir": "0.1.0",
-    "@fabric/permissions": "0.1.0"
+    "@fabric/permissions": "0.1.0",
+    "@fabric/projects": "0.1.0"
   }
 }

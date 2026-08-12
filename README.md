@@ -1,31 +1,52 @@
 # ▚ Fabric
 
-**The runtime for AI-generated software.** Applications become first-class
-workspace objects — created by conversation, shared like a Google Doc,
-connected like Lego, versioned like a document, and never deployed.
+**The agent-native cloud control plane for small software.** Any AI can connect
+through MCP, edit provider-neutral source files, seal immutable snapshots, run
+isolated builds, deploy applications, inspect logs, and return shareable URLs.
 
 > Software should be as easy to create, edit, share, and compose as a Google
 > Doc. Today documents are first-class objects. Tomorrow, applications are too.
 
-This repository is the **foundation** — not a prototype. The model runs today
-on Node's built-in TypeScript support. Fabric apps are portable: the Studio is
-an editor, not the only place they can run.
+Fabric abstracts projects, files, runtimes, credentials, builds, deployments,
+permissions, and providers. Vercel Sandbox and Vercel Deployments are the first
+replaceable adapters; Node.js, Python, and Go are supported by deterministic
+runtime detection. The original App IR remains available as an instant
+execution mode for document-shaped internal tools.
+
+End users interact only with Fabric. Provider accounts, deployment projects,
+database credentials, build images, and infrastructure configuration remain
+private implementation details controlled by the Fabric operator.
 
 ## The idea in one picture
 
 ```
-prompt ──► Orchestrator ──► IR (the source of truth) ──► Validator ──► Interpreter ──► running app
-                                     ▲                                      │
-                                     └───────── edit = new version ─────────┘
-apps call abstract CAPABILITIES (storage, notifications, ai, …); the RUNTIME owns all real infrastructure.
+AI / Studio ──► REST or MCP ──► working files ──► immutable snapshot
+                                                     │
+                                      runtime detector + build plan
+                                                     │
+                                      isolated build ──► deployment URL
 ```
 
-An application is not code and not a database — it is a declarative document
-(the **IR**). The AI edits it, versioning snapshots it, an **interpreter** runs
-it, and a **runtime** gives it storage, permissions, events, connections,
-scheduling, secrets, and logging with zero configuration. Apps never name
-infrastructure; they name **capabilities**, which arrive as plugins in a
-**registry** — so the platform grows without ever editing its core.
+Agents operate on Fabric concepts rather than VMs, containers, IAM, build
+servers, or provider APIs. Source projects and Fabric IR applications coexist:
+source mode supports ordinary frameworks and languages; IR mode keeps the
+sub-millisecond edit/run path for apps that fit Fabric's deterministic runtime.
+
+## Connect ChatGPT
+
+Deploy Fabric once, then open `/connect`. Add the displayed remote MCP URL in
+ChatGPT Plugins. ChatGPT discovers Fabric's OAuth metadata, opens a Fabric
+sign-in and consent screen, and receives short-lived PKCE-bound access with a
+rotating refresh token.
+
+After connecting, ask:
+
+> Create a Python calculator, deploy it on Fabric, and give me the application
+> and editor links.
+
+ChatGPT can create files, seal a snapshot, poll the isolated build, deploy,
+publish, and return Fabric-branded URLs. It never receives provider tokens,
+database credentials, or raw provider deployment metadata.
 
 ## Quickstart (no install, no network)
 
@@ -52,6 +73,32 @@ npm install
 npm run link:local
 npm run studio
 ```
+
+## Run the Agent Cloud end to end
+
+Install the Vercel CLI (`npm i -g vercel`), link the Studio to a Vercel project,
+and pull its environment. For local execution, copy
+`apps/studio/.env.example` to `apps/studio/.env.local` and configure
+`VERCEL_TOKEN` and `FABRIC_CLOUD_EXECUTION_MODE=inline`. Fabric reads
+`VERCEL_TEAM_ID` and `VERCEL_PROJECT_ID` from `.vercel/project.json` after
+`vercel link` (explicit environment values override it). This linked project is
+the Fabric control plane used for Sandbox execution; Fabric creates a separate
+target project for each deployed application.
+
+For durable production state, also configure `DATABASE_URL`, deploy Fabric with
+Vercel Queues enabled, and run the migrations.
+
+```bash
+npm run db:migrate
+npm run studio -- --port 3210
+
+# In another terminal: project → snapshot → build → deploy → publish → HTTP check
+npm run smoke:cloud
+```
+
+Open `http://localhost:3210/projects` to use the same flow in Studio. Project
+owners can generate a scoped remote MCP configuration from the project page;
+the raw token is shown once and only its SHA-256 digest is stored.
 
 ## Run an app without Studio
 

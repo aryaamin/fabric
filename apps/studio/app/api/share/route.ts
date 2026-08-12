@@ -90,7 +90,10 @@ export async function POST(req: Request) {
         email: body.inviteEmail.email,
         documentRole: body.inviteEmail.role,
         appRoles: body.inviteEmail.appRoles ?? [],
-        redirectUrl: `${base}/w/${identity.workspaceId}/${obj.slug}`,
+        redirectUrl:
+          obj.kind === "project" && obj.projectId
+            ? `${base}/projects/${obj.projectId}`
+            : `${base}/w/${identity.workspaceId}/${obj.slug}`,
       });
       return Response.json({
         ok: true,

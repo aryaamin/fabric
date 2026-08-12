@@ -28,7 +28,7 @@ export default async function WorkspacePage() {
   const rt = getRuntime(identity.workspaceId);
   const objects = await listWorkspaceObjects(identity.workspaceId, identity.id);
 
-  const rows = objects.map((obj) => {
+  const rows = objects.filter((obj) => obj.kind === "app").map((obj) => {
     const doc = rt.installed(obj.appId ?? obj.slug);
     const versions = doc ? rt.versions.history(doc.id).length : 0;
     return { obj, doc, versions, bytes: doc ? irBytes(doc) : 0 };
@@ -62,6 +62,12 @@ export default async function WorkspacePage() {
             <span className="text-[13.5px] text-ink-2">Acme Inc</span>
           </div>
           <div className="ml-auto flex items-center gap-2">
+            <Link
+              href="/projects"
+              className="rounded-md border border-accent/25 bg-accent-dim px-2.5 py-1.5 text-[13px] text-accent-hi transition-colors hover:border-accent/45"
+            >
+              Agent cloud
+            </Link>
             <Link
               href="/why"
               className="rounded-md px-2.5 py-1.5 text-[13px] text-ink-2 transition-colors duration-150 hover:bg-hover hover:text-ink"

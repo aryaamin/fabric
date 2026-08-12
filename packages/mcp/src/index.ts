@@ -4,7 +4,7 @@ import type { FabricHost } from "@fabric/host";
 
 export interface McpServerOptions {
   host: FabricHost;
-  principal?: Principal;
+  principal: Principal;
   name?: string;
   version?: string;
 }
@@ -24,7 +24,7 @@ export class FabricMcpServer {
 
   constructor(options: McpServerOptions) {
     this.host = options.host;
-    this.principal = options.principal ?? { id: "mcp", roles: ["owner"] };
+    this.principal = options.principal;
     this.name = options.name ?? "fabric";
     this.version = options.version ?? "0.1.0";
   }
@@ -262,3 +262,5 @@ function text(value: unknown) {
 function rpcError(code: number, message: string): Error & { code: number } {
   return Object.assign(new Error(message), { code });
 }
+
+export * from "./cloud.ts";

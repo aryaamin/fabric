@@ -10,3 +10,5 @@ next-env.d.ts
 .turbo/
 coverage/
 .fabric-data/
+.vercel
+.env*

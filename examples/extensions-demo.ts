@@ -38,7 +38,10 @@ const response = await host.fetch(
 );
 assert(response.ok, "portable host did not render the view");
 
-const mcp = new FabricMcpServer({ host });
+const mcp = new FabricMcpServer({
+  host,
+  principal: { id: "demo", roles: ["owner"] },
+});
 const tools = (await mcp.handle({
   jsonrpc: "2.0",
   id: 1,

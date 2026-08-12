@@ -85,7 +85,10 @@ async function mcp(args: string[]): Promise<void> {
   const workspaceId = option(args, "--workspace") ?? "local";
   const codeRoot = resolve(option(args, "--code-root") ?? dirname(resolve(firstPath)));
   const host = await createHost(paths, workspaceId, codeRoot);
-  await new FabricMcpServer({ host }).serveStdio();
+  await new FabricMcpServer({
+    host,
+    principal: { id: "local-cli", roles: ["owner"] },
+  }).serveStdio();
 }
 
 async function validate(args: string[]): Promise<void> {

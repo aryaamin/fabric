@@ -43,3 +43,26 @@ test("rotating a share token invalidates the previous link", () => {
   assert.equal(resolveAccess(object, { token: previous }), undefined);
   assert.equal(resolveAccess(object, { token: object.shareToken }), "viewer");
 });
+
+test("callers can reserve a deterministic workspace object slug", () => {
+  const workspace = createWorkspace("ws", "Workspace");
+  const object = createObject(workspace, {
+    kind: "project",
+    name: "Smoke Project",
+    ownerId: "owner",
+    slug: "smoke-project",
+    projectId: "prj_1",
+  });
+
+  assert.equal(object.slug, "smoke-project");
+  assert.throws(
+    () =>
+      createObject(workspace, {
+        kind: "project",
+        name: "Invalid",
+        ownerId: "owner",
+        slug: "../invalid",
+      }),
+    /workspace object slug/,
+  );
+});

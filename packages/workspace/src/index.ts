@@ -18,7 +18,7 @@ export interface Grant {
   role: ShareRole;
 }
 
-export type ObjectKind = "app" | "document" | "folder";
+export type ObjectKind = "app" | "project" | "document" | "folder";
 
 export interface WorkspaceObject {
   id: string;
@@ -28,6 +28,8 @@ export interface WorkspaceObject {
   parentId?: string;
   /** app objects point at the app id the runtime installs. */
   appId?: string;
+  /** project objects point at provider-neutral source projects. */
+  projectId?: string;
   /** stable public slug used for URLs and embeds. */
   slug: string;
   /** people explicitly invited by id (like typing an email in Google Docs). */
@@ -72,7 +74,9 @@ export interface CreateObjectInput {
   kind: ObjectKind;
   name: string;
   ownerId: string;
+  slug?: string;
   appId?: string;
+  projectId?: string;
   parentId?: string;
   icon?: string;
 }
@@ -83,18 +87,27 @@ export function createObject(ws: Workspace, input: CreateObjectInput): Workspace
     id: `obj_${crypto.randomUUID()}`,
     kind: input.kind,
     name: input.name,
-    slug: makeSlug(input.name),
+    slug: input.slug ? exactSlug(input.slug) : makeSlug(input.name),
     grants: [{ principalId: input.ownerId, role: "owner" }],
     shareToken: makeToken(),
     public: false,
     createdAt: now,
     updatedAt: now,
     ...(input.appId ? { appId: input.appId } : {}),
+    ...(input.projectId ? { projectId: input.projectId } : {}),
     ...(input.parentId ? { parentId: input.parentId } : {}),
     ...(input.icon ? { icon: input.icon } : {}),
   };
   ws.objects.set(obj.id, obj);
   return obj;
+}
+
+function exactSlug(value: string): string {
+  const slug = value.trim().toLowerCase();
+  if (!/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(slug)) {
+    throw new Error("workspace object slug must contain 1-63 lowercase letters, numbers, or hyphens");
+  }
+  return slug;
 }
 
 export function share(obj: WorkspaceObject, principalId: string, role: ShareRole): void {

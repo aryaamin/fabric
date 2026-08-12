@@ -5,13 +5,10 @@ import { GeistMono } from "geist/font/mono";
 import { cn } from "../lib/cn";
 import { TooltipProvider } from "../components/ui/AiTooltip";
 import "./globals.css";
-import { Geist } from "next/font/google";
-
-const geist = Geist({subsets:['latin'],variable:'--font-sans'});
 
 export const metadata = {
   title: "Fabric Studio",
-  description: "Create software like documents. Interpreted, never deployed.",
+  description: "The agent-native cloud control plane for small software.",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
@@ -21,7 +18,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     children
   );
   return (
-    <html lang="en" className={cn("dark", GeistSans.variable, GeistMono.variable, "font-sans", geist.variable)}>
+    <html lang="en" className={cn("dark", GeistSans.variable, GeistMono.variable, "font-sans")}>
       <body className="min-h-screen antialiased">
         <TooltipProvider>{content}</TooltipProvider>
       </body>

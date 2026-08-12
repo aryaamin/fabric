@@ -1,9 +1,15 @@
 import { neon, type NeonQueryFunction } from "@neondatabase/serverless";
+import type { CloudSqlExecutor } from "@fabric/cloud";
+import type { ProjectSqlExecutor } from "@fabric/projects";
 import type { SqlExecutor } from "@fabric/storage";
 import type { VersionSqlExecutor } from "@fabric/versioning";
 import type { WorkspaceSqlExecutor } from "@fabric/workspace";
 
-type DatabaseExecutor = SqlExecutor & VersionSqlExecutor & WorkspaceSqlExecutor;
+type DatabaseExecutor = SqlExecutor &
+  VersionSqlExecutor &
+  WorkspaceSqlExecutor &
+  ProjectSqlExecutor &
+  CloudSqlExecutor;
 
 let client: NeonQueryFunction<false, false> | undefined;
 

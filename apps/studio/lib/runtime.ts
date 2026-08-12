@@ -163,6 +163,17 @@ export function ensureRuntime(
 async function seed(workspaceId: string, ownerId: string): Promise<void> {
   const rt = getRuntime(workspaceId);
   const owner: Principal = { id: ownerId, roles: ["owner"] };
+  if (hasDurableDatabase()) {
+    await getDatabaseExecutor()(
+      `INSERT INTO workspaces (id, name)
+       VALUES ($1, $2)
+       ON CONFLICT (id) DO NOTHING`,
+      [
+        workspaceId,
+        workspaceId.startsWith("org_") ? "Team Workspace" : "My Workspace",
+      ],
+    );
+  }
   const repository = durableVersionRepository();
   const heads = (await repository?.listHeads(workspaceId)) ?? [];
   for (const version of heads) {

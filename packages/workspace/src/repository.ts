@@ -30,6 +30,7 @@ interface ObjectRow extends WorkspaceSqlRow {
   name: string;
   slug: string;
   app_id: string | null;
+  project_id: string | null;
   parent_id: string | null;
   icon: string | null;
   link_role: ShareRole | null;
@@ -75,7 +76,7 @@ export class PostgresWorkspaceRepository implements WorkspaceRepository {
 
   async listObjects(workspaceId: string): Promise<WorkspaceObject[]> {
     const objects = await this.sql<ObjectRow>(
-      `SELECT id, kind, name, slug, app_id, parent_id, icon, link_role,
+      `SELECT id, kind, name, slug, app_id, project_id, parent_id, icon, link_role,
               share_token, public, created_at, updated_at
        FROM workspace_objects
        WHERE workspace_id = $1
@@ -94,7 +95,7 @@ export class PostgresWorkspaceRepository implements WorkspaceRepository {
 
   async findBySlug(workspaceId: string, slug: string): Promise<WorkspaceObject | null> {
     const rows = await this.sql<ObjectRow>(
-      `SELECT id, kind, name, slug, app_id, parent_id, icon, link_role,
+      `SELECT id, kind, name, slug, app_id, project_id, parent_id, icon, link_role,
               share_token, public, created_at, updated_at
        FROM workspace_objects
        WHERE workspace_id = $1 AND slug = $2`,
@@ -114,9 +115,9 @@ export class PostgresWorkspaceRepository implements WorkspaceRepository {
     const object = createObject(createWorkspace(workspaceId, ""), input);
     await this.sql(
       `INSERT INTO workspace_objects
-        (id, workspace_id, kind, name, slug, app_id, parent_id, icon,
+        (id, workspace_id, kind, name, slug, app_id, project_id, parent_id, icon,
          link_role, share_token, public, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
       [
         object.id,
         workspaceId,
@@ -124,6 +125,7 @@ export class PostgresWorkspaceRepository implements WorkspaceRepository {
         object.name,
         object.slug,
         object.appId ?? null,
+        object.projectId ?? null,
         object.parentId ?? null,
         object.icon ?? null,
         object.linkRole ?? null,
@@ -140,8 +142,8 @@ export class PostgresWorkspaceRepository implements WorkspaceRepository {
   async saveObject(workspaceId: string, object: WorkspaceObject): Promise<void> {
     const rows = await this.sql<{ id: string }>(
       `UPDATE workspace_objects
-       SET name = $3, slug = $4, app_id = $5, parent_id = $6, icon = $7,
-           link_role = $8, share_token = $9, public = $10, updated_at = $11
+       SET name = $3, slug = $4, app_id = $5, project_id = $6, parent_id = $7, icon = $8,
+           link_role = $9, share_token = $10, public = $11, updated_at = $12
        WHERE workspace_id = $1 AND id = $2
        RETURNING id`,
       [
@@ -150,6 +152,7 @@ export class PostgresWorkspaceRepository implements WorkspaceRepository {
         object.name,
         object.slug,
         object.appId ?? null,
+        object.projectId ?? null,
         object.parentId ?? null,
         object.icon ?? null,
         object.linkRole ?? null,
@@ -185,6 +188,7 @@ function fromRow(row: ObjectRow, grants: GrantRow[]): WorkspaceObject {
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
     ...(row.app_id ? { appId: row.app_id } : {}),
+    ...(row.project_id ? { projectId: row.project_id } : {}),
     ...(row.parent_id ? { parentId: row.parent_id } : {}),
     ...(row.icon ? { icon: row.icon } : {}),
     ...(row.link_role ? { linkRole: row.link_role } : {}),
